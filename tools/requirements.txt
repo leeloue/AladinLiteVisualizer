@@ -1,0 +1,10 @@
+ numpy
+ matplotlib
+ numba
+ Pillow
+ astropy
+ cdshealpix
+ notebook
+ ipyaladin
+ astroquery
+ mocpy
