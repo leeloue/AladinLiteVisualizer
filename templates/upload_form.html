@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Upload FITS Files</title>
+</head>
+
+<body>
+
+    <h2>Upload .fits Files</h2>
+
+    {% with messages = get_flashed_messages() %}
+    {% if messages %}
+    <ul style="color: red;">
+        {% for message in messages %}
+        {{ message }}
+        {% endfor %}
+    </ul>
+    {% endif %}
+    {% endwith %}
+
+    <form action="/upload" method="POST" enctype="multipart/form-data">
+        <input type="file" name="file" multiple accept=".fits">
+        <input type="submit" value="Upload">
+    </form>
+
+</body>
+
+</html>
