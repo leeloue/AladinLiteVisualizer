@@ -9,7 +9,7 @@ app.secret_key = 'your-secret-key'
 UPLOAD_FOLDER = 'data/HTTP/F658N'
 ALLOWED_EXTENSIONS = {'fits'}
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024 * 40  # 100 MB
+app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024 * 40  # 4Go MB
 
 # Ensure upload folder exists
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
@@ -22,8 +22,7 @@ def generate_fits_tiles(output_folder):
         "java", "-jar", "tools/Hipsgen.jar",
         "in=data/HTTP/F658N",
         f"out={output_folder}",
-        "creator_did=test/P/HTTP/F658N",
-        "TILES"
+        "creator_did=test/P/HTTP/F658N"
     ]
     try:
         result = subprocess.run(command, check=True, capture_output=True, text=True)
@@ -53,6 +52,15 @@ def generate_png_tiles(output_folder):
 @app.route('/')
 def home():
     return render_template('upload_form.html')
+
+
+@app.route('/index')
+def index():
+    return render_template('index.html')
+
+@app.route('/properties')
+def properties():
+    return render_template('properties')
 
 @app.route('/upload', methods=['POST'])
 def upload_file():
@@ -86,13 +94,13 @@ def upload_file():
         if not generate_png_tiles(output_dir):
             flash("❌ error during PNG tiles generation")
     else:
-        flash("No valid fits file uploaded")
+        flash("no valid fits file uploaded")
 
     return redirect(url_for('home'))
 
 @app.errorhandler(413)
 def too_large(e):
-    flash("file is too large, Max size is 4Go")
+    flash("file is too large, max size is 4Go")
     return redirect(request.url)
 
 if __name__ == '__main__':
