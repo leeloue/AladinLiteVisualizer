@@ -2,18 +2,31 @@
 <html>
 
 <head>
-    <title>Upload FITS files</title>
+    <meta charset="utf-8">
+    <title>Aladin Lite Visualiser</title>
+    <style>
+        #aladin-lite-div {
+            margin-top: 20px;
+            border: 1px solid black;
+            width: 1000px;
+            height: 500px;
+        }
+    </style>
 </head>
 
 <body>
 
-    <h2>Upload fits files</h2>
+    <h2>Upload FITS files</h2>
+
+    <form action="/deleteAll" method="POST">
+        <button type="submit">Delete All</button>
+    </form>
 
     {% with messages = get_flashed_messages() %}
     {% if messages %}
     <ul>
-        {% for message in messages %}
-        {{ message }}
+        {% for m in messages %}
+        <li>{{ m }}</li>
         {% endfor %}
     </ul>
     {% endif %}
@@ -24,14 +37,26 @@
         <input type="submit" value="Upload">
     </form>
 
-    <div id="aladin-lite-div" style="width:400px;height:400px;"></div>
-    <script type="text/javascript" src="/hips/F658N/" charset="utf-8"></script>
+    <div id="aladin-lite-div"></div>
+
+    <script type="text/javascript" src="https://aladin.u-strasbg.fr/AladinLite/api/v3/latest/aladin.js"
+        charset="utf-8"></script>
     <script type="text/javascript">
-        let aladin;
-        A.init.then(() => {
-            aladin = A.aladin('#aladin-lite-div', { survey: "P/DSS2/color", fov: 60 });
+        var aladin = A.aladin('#aladin-lite-div', {
+            target: "{{ initial_ra }} {{ initial_dec }}",
+            fov: '{{ initial_fov }}',
         });
+
+        aladin.setImageSurvey(aladin.createImageSurvey(
+            "HiPS",
+            "HiPS local",
+            "http://localhost:5000/hips/F658N/",
+            "equatorial",
+            9,
+            { imgFormat: 'png' }
+        ));
     </script>
+
 
 </body>
 
