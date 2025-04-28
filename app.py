@@ -3,9 +3,12 @@ from werkzeug.utils import secure_filename
 import os
 import subprocess
 import shutil
+from flask_cors import CORS
 
 app = Flask(__name__)
+CORS(app)
 app.secret_key = 'your-secret-key'
+
 
 HIPS_DIR = os.path.join(os.getcwd(), 'hips')
 UPLOAD_FOLDER = 'data/HTTP/F658N'
@@ -122,33 +125,31 @@ def delete_all():
     return redirect(url_for('home'))
 
 @app.route('/hips/<path:filename>')
-def serve_hips(filename):
+def hips(filename):
     return send_from_directory('hips', filename)
 
-@app.route("/view/<survey>")
+@app.route('/view/<survey>')
 def view_survey(survey):
-    properties_path = os.path.join(HIPS_DIR, survey, "properties")
+    properties_path = os.path.join(HIPS_DIR, survey, 'properties')
     initial_ra = 0
     initial_dec = 0
-    initial_fov = 180
-
+    initial_fov = 0.5
     if os.path.exists(properties_path):
-        with open(properties_path) as f:
+        with open(properties_path, 'r') as f:
             for line in f:
-                if 'hips_initial_ra' in line:
-                    initial_ra = line.split('=')[1].strip()
-                elif 'hips_initial_dec' in line:
-                    initial_dec = line.split('=')[1].strip()
-                elif 'hips_initial_fov' in line:
-                    initial_fov = line.split('=')[1].strip()
+                if line.startswith('hips_initial_ra'):
+                    initial_ra = float(line.split('=')[1].strip())
+                elif line.startswith('hips_initial_dec'):
+                    initial_dec = float(line.split('=')[1].strip())
+                elif line.startswith('hips_initial_fov'):
+                    initial_fov = float(line.split('=')[1].strip())
 
-    return render_template(
-        "viewer.html",
-        survey=survey,
-        initial_ra=initial_ra,
-        initial_dec=initial_dec,
-        initial_fov=initial_fov
-    )
+    return render_template('viewer.html',
+                           survey=survey,
+                           initial_ra=initial_ra,
+                           initial_dec=initial_dec,
+                           initial_fov=initial_fov)
+
 
 @app.errorhandler(413)
 def too_large(e):

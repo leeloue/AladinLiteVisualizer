@@ -8,7 +8,7 @@
         #aladin-lite-div {
             margin-top: 20px;
             border: 1px solid black;
-            width: 1000px;
+            width: 500px;
             height: 500px;
         }
     </style>
@@ -39,24 +39,22 @@
 
     <div id="aladin-lite-div"></div>
 
-    <script type="text/javascript" src="https://aladin.u-strasbg.fr/AladinLite/api/v3/latest/aladin.js"
-        charset="utf-8"></script>
-    <script type="text/javascript">
-        var aladin = A.aladin('#aladin-lite-div', {
-            target: "{{ initial_ra }} {{ initial_dec }}",
-            fov: '{{ initial_fov }}',
-        });
-
-        aladin.setImageSurvey(aladin.createImageSurvey(
-            "HiPS",
-            "HiPS local",
-            "http://localhost:5000/hips/F658N/",
-            "equatorial",
-            9,
-            { imgFormat: 'png' }
-        ));
+    <script type="text/javascript" src="https://aladin.u-strasbg.fr/AladinLite/api/v3/latest/aladin.js" charset="utf-8">
     </script>
-
+    <script type="text/javascript">
+        var aladin;
+        A.init.then(() => {
+            aladin = A.aladin('#aladin-lite-div');
+            aladin.setImageSurvey(aladin.createImageSurvey(
+                "F658N-local",
+                "F658N Custom HiPS",
+                "http://localhost:5000/hips/F658N/",
+                "equatorial",
+                9,
+                { imgFormat: 'png' }
+            ));
+        });
+    </script>
 
 </body>
 
