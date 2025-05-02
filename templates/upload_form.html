@@ -33,27 +33,43 @@
     {% endwith %}
 
     <form action="/upload" method="POST" enctype="multipart/form-data">
-        <input type="file" name="file" multiple accept=".fits">
-        <input type="submit" value="Upload">
+        <input type="file" multiple accept=".fits" name="file">
+        <input type="submit" value="upload">
     </form>
 
+    <h3>Fichiers déposés :</h3>
+    {% if files %}
+    <form action="/generate_hips" method="POST">
+        <p>Select one or multiple files to generate a HiPS</p>
+        {% for f in files %}
+        <input type="checkbox" name="selected_files" value="{{ f.filename }}"> {{ f.filename }}<br>
+        {% endfor %}
+        <button type="submit">generate HiPS</button>
+    </form>
+    {% else %}
+    <p>No file uploaded</p>
+    {% endif %}
+
+    {% if hips_id %}
+    <h3>HiPS displayed :</h3>
     <div id="aladin-lite-div"></div>
+    {% endif %}
 
     <script type="text/javascript" src="https://aladin.u-strasbg.fr/AladinLite/api/v3/latest/aladin.js" charset="utf-8">
     </script>
     <script type="text/javascript">
-        var aladin;
-        A.init.then(() => {
-            aladin = A.aladin('#aladin-lite-div');
-            aladin.setImageSurvey(aladin.createImageSurvey(
-                "F658N-local",
-                "F658N Custom HiPS",
-                "http://localhost:5000/hips/F658N/",
-                "equatorial",
-                9,
-                { imgFormat: 'png' }
-            ));
-        });
+        if (hipsId) {
+            A.init.then(() => {
+                var aladin = A.aladin('#aladin-lite-div');
+                aladin.setImageSurvey(aladin.createImageSurvey(
+                    hipsId,
+                    "Custom HiPS",
+                    "http://localhost:5000/hips/" + hipsId + "/",
+                    "equatorial", 9,
+                    { imgFormat: 'png' }
+                ));
+            });
+        }
     </script>
 
 </body>
