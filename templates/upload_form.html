@@ -11,52 +11,150 @@
             width: 500px;
             height: 500px;
         }
+
+        #progress-container {
+            width: 100%;
+            background-color: #f3f3f3;
+            border-radius: 10px;
+            height: 30px;
+            margin: 20px 0;
+        }
+
+        #progress-bar {
+            height: 100%;
+            width: 0%;
+            background-color: #4caf50;
+            border-radius: 10px;
+            text-align: center;
+            line-height: 30px;
+            color: white;
+        }
+
+        #flash-container {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 9999;
+        }
+
+        .flash-popup {
+            background-color: #323232;
+            color: white;
+            padding: 12px 20px;
+            margin-bottom: 10px;
+            border-radius: 6px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+            opacity: 1;
+            transition: opacity 1.5s ease-out;
+            min-width: 200px;
+            max-width: 300px;
+            font-family: sans-serif;
+        }
     </style>
 </head>
 
 <body>
 
     <h2>Upload FITS files</h2>
-
-    <form action="/deleteAll" method="POST">
-        <button type="submit">Delete All</button>
-    </form>
-
-    {% with messages = get_flashed_messages() %}
-    {% if messages %}
-    <ul>
-        {% for m in messages %}
-        <li>{{ m }}</li>
+    <div id="flash-container">
+        {% with messages = get_flashed_messages() %}
+        {% for message in messages %}
+        <div class="flash-popup">{{ message }}</div>
         {% endfor %}
-    </ul>
-    {% endif %}
-    {% endwith %}
+        {% endwith %}
+    </div>
+
+    <script>
+        document.querySelectorAll('.flash-popup').forEach((popup) => {
+            setTimeout(() => {
+                popup.style.opacity = '0';
+                setTimeout(() => popup.remove(), 1500);
+            }, 6000);
+        });
+    </script>
+
+
+    <script>
+        setTimeout(function () {
+            const flashMessages = document.getElementById('flash-messages');
+            if (flashMessages) {
+                flashMessages.classList.add('fade-out');
+                setTimeout(() => flashMessages.remove(), 500);
+            }
+        }, 5000);
+    </script>
+
 
     <form action="/upload" method="POST" enctype="multipart/form-data">
         <input type="file" multiple accept=".fits" name="file">
         <input type="submit" value="upload">
     </form>
 
-    <h3>Fichiers déposés :</h3>
+    <h3>Uploaded files</h3>
     {% if files %}
-    <form action="/generate_hips" method="POST">
-        <p>Select one or multiple files to generate a HiPS</p>
+    <p>Select one or multiple files to generate a HiPS</p>
+
+    <div>
+        <form action="/generate_hips" method="POST" id="generate-form">
+            <button type="submit">Generate HiPS</button>
+        </form>
+        <form action="/deleteAll" method="POST">
+            <button type="submit">Delete all</button>
+            <br>
+        </form>
+
         {% for f in files %}
-        <input type="checkbox" name="selected_files" value="{{ f.filename }}"> {{ f.filename }}<br>
+        <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 5px;">
+            <input type="checkbox" name="selected_files" value="{{ f.filename }}" form="generate-form" id="hipsSelect">
+            <span>{{ f.filename }}</span>
+            <form action="/delete/{{ f.filename }}" method="POST">
+                <button type="submit" style="padding: 0 5px;">🗑️</button>
+            </form>
+        </div>
         {% endfor %}
-        <button type="submit">generate HiPS</button>
-    </form>
+
+    </div>
+
     {% else %}
-    <p>No file uploaded</p>
+    <p>No uploaded files</p>
     {% endif %}
+
+    <progress id="progress-bar" value="0" max="100" style="width: 100%; display: none;"></progress>
+
+    <script>
+        function updateProgress(hipsId) {
+            fetch(`/get_progress?hips_id=${hipsId}`)
+                .then(response => response.json())
+                .then(data => {
+                    progressBar.value = data.progress;
+
+                    if (data.status === 'complete') {
+                        window.location.reload();
+                    } else if (data.status === 'error') {
+                        alert('Generation error!');
+                        progressBar.style.display = 'none';
+                    } else if (data.progress < 100) {
+                        setTimeout(() => updateProgress(hipsId), 1000);
+                    }
+                });
+        }
+
+        .then(data => {
+            if (data.hips_id) {
+                updateProgress(data.hips_id);
+            }
+        })
+    </script>
+
+
 
     {% if hips_id %}
     <h3>HiPS displayed :</h3>
     <div id="aladin-lite-div"></div>
     {% endif %}
 
-    <script type="text/javascript" src="https://aladin.u-strasbg.fr/AladinLite/api/v3/latest/aladin.js" charset="utf-8">
-    </script>
+    <script type="text/javascript" src="https://aladin.u-strasbg.fr/AladinLite/api/v3/latest/aladin.js"
+        charset="utf-8"></script>
     <script type="text/javascript">
         if (hipsId) {
             A.init.then(() => {

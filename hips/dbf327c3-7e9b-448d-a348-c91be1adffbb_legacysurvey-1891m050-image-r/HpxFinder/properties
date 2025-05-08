@@ -1,0 +1,9 @@
+creator_did          = ivo://test/P/HTTP/F658N/meta
+obs_title            = legacysurvey-1891m050-image-r.fits-meta
+dataproduct_type     = meta
+hips_frame           = equatorial
+hips_order           = 11
+hips_tile_width      = 512
+hips_release_date    = 2025-05-08T17:15Z
+hips_version         = 1.4
+hips_builder         = Aladin/HipsGen v12.119
