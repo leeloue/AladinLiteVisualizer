@@ -1,13 +1,10 @@
+from flask import (Flask, render_template, request, flash, redirect, send_from_directory, make_response, jsonify)
 import os
 import time
 import uuid
 import subprocess
 from threading import Lock, Thread
 
-from flask import (
-    Flask, render_template, request, flash,
-    redirect, send_from_directory, make_response, jsonify
-)
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
 
@@ -26,10 +23,8 @@ user_files = {}
 task_queue = {}
 progress_lock = Lock()
 
-
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
-
 
 def generate_fits_index(output_folder, fits_file):
     cmd = [
@@ -46,7 +41,6 @@ def generate_fits_index(output_folder, fits_file):
         print("❌ error generating fits index", e.stderr)
         return False
 
-
 def get_fits_tiles_cmd(input_folder, output_folder):
     return [
         "java", "-jar", "tools/Hipsgen.jar",
@@ -55,7 +49,6 @@ def get_fits_tiles_cmd(input_folder, output_folder):
         "creator_did=test/P/HTTP/F658N",
         "TILES"
     ]
-
 
 def get_png_tiles_cmd(input_folder, output_folder):
     return [
@@ -67,23 +60,14 @@ def get_png_tiles_cmd(input_folder, output_folder):
         "PNG"
     ]
 
-
 def count_tiles_by_extension(root_dir, extension):
     count = 0
-    for root, dirs, files in os.walk(root_dir):
+    for files in os.walk(root_dir):
         count += sum(1 for f in files if f.lower().endswith(extension))
     return count
 
-
-def generate_tiles_with_progress(cmd, output_folder, total_tiles,
-                                 start_pct, span_pct, hips_id):
-    """
-    Lance Hipsgen (TILES ou PNG) en mode non bloquant et met à jour task_queue
-    start_pct : pourcentage de début (p.ex. 2 pour FITS, 50 pour PNG)
-    span_pct  : largeur en pourcents de cette phase (p.ex. 48 pour FITS, 49 pour PNG)
-    """
+def generate_tiles_with_progress(cmd, output_folder, total_tiles, start_pct, span_pct, hips_id):
     proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-    # On détermine l'extension à compter selon la dernière action de cmd
     ext = '.png' if cmd[-1] == 'PNG' else '.fits'
 
     try:
@@ -99,7 +83,6 @@ def generate_tiles_with_progress(cmd, output_folder, total_tiles,
             err = proc.stderr.read().decode()
             raise Exception(f"Hipsgen failed ({ext}): {err}")
     finally:
-        # S’assurer qu’on atteint la fin de la phase même si la boucle sort tard
         with progress_lock:
             task_queue[hips_id]['progress'] = start_pct + span_pct
 
@@ -114,13 +97,11 @@ def background_task(hips_id, filename, fits_path):
         hips_output_dir = os.path.join("hips", user_id, basename)
         os.makedirs(hips_output_dir, exist_ok=True)
 
-        # 1) Index FITS
         if not generate_fits_index(hips_output_dir, fits_path):
             raise Exception("Erreur génération index")
         with progress_lock:
             task_queue[hips_id]['progress'] = 2
 
-        # 2) Calcul total tuiles (à partir du MOC)
         moc = MOC.load(os.path.join(hips_output_dir, "HpxFinder", "Moc.fits"))
         order_max = moc.max_order
         total_tiles = sum(
@@ -132,19 +113,16 @@ def background_task(hips_id, filename, fits_path):
 
         user_folder = os.path.dirname(fits_path)
 
-        # 3) Phase FITS (TILES)
         cmd_tiles = get_fits_tiles_cmd(user_folder, hips_output_dir)
         generate_tiles_with_progress(cmd_tiles, hips_output_dir,
                                      total_tiles, start_pct=2, span_pct=48,
                                      hips_id=hips_id)
 
-        # 4) Phase PNG
         cmd_png = get_png_tiles_cmd(user_folder, hips_output_dir)
         generate_tiles_with_progress(cmd_png, hips_output_dir,
                                      total_tiles, start_pct=50, span_pct=49,
                                      hips_id=hips_id)
 
-        # 5) Terminé
         with progress_lock:
             task_queue[hips_id]['progress'] = 100
             task_queue[hips_id]['status'] = 'complete'
@@ -249,36 +227,25 @@ def delete_all():
 def serve_hips(filename):
     return send_from_directory('hips', filename)
 
-
-if __name__ == "__main__":
-    app.run(debug=True)
-
-
 @app.route("/delete/<filename>", methods=["POST"])
 def delete_file(filename):
     user_id = request.cookies.get('userID')
     if not user_id or user_id not in user_files:
-        flash("❌ unknown user")
+        flash("❌ Utilisateur inconnu")
         return redirect('/')
-
-    user_file_entry = next((f for f in user_files[user_id] if f["filename"] == filename), None)
-    if not user_file_entry:
-        flash(f"❌ file {filename} not found")
-        return redirect('/')
-
-    file_path = os.path.join(app.config['UPLOAD_FOLDER'], user_id, filename)
-    if os.path.exists(file_path):
-        os.remove(file_path)
-        user_files[user_id].remove(user_file_entry)
-        flash(f"✅ file {filename} deleted")
+    folder = os.path.join(app.config['UPLOAD_FOLDER'], user_id)
+    p = os.path.join(folder, filename)
+    if os.path.exists(p):
+        os.remove(p)
+        user_files[user_id] = [e for e in user_files[user_id] if e['filename'] != filename]
+        flash(f"✅ {filename} supprimé")
     else:
-        flash(f"❌ file {filename} missing")
-
+        flash(f"❌ {filename} introuvable")
     return redirect('/')
 
 @app.errorhandler(413)
 def too_large(e):
-    flash("file too large : max 4Gb")
+    flash("file too large : max 5Gb")
     return redirect('/')
 
 if __name__ == "__main__":
