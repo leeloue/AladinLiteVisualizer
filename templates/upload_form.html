@@ -12,23 +12,30 @@
             height: 500px;
         }
 
-        #progress-container {
-            width: 100%;
-            background-color: #f3f3f3;
-            border-radius: 10px;
+        #progress-bar {
+            width: 450px;
             height: 30px;
-            margin: 20px 0;
+            background-color: #e0e0e0;
+            border: 1px solid black;
+            display: none;
+            appearance: none;
         }
 
-        #progress-bar {
-            height: 100%;
-            width: 0%;
-            background-color: #4caf50;
-            border-radius: 10px;
-            text-align: center;
-            line-height: 30px;
-            color: white;
+        #progress-bar::-webkit-progress-bar {
+            background-color: #e0e0e0;
+            border-radius: 5px;
+            border: 1px solid black;
         }
+
+        #progress-bar::-webkit-progress-value {
+            background-color: #555;
+            border-radius: 5px;
+        }
+
+        #progress-bar::-moz-progress-bar {
+            background-color: #555;
+        }
+
 
         #flash-container {
             position: fixed;
@@ -73,18 +80,6 @@
         });
     </script>
 
-
-    <script>
-        setTimeout(function () {
-            const flashMessages = document.getElementById('flash-messages');
-            if (flashMessages) {
-                flashMessages.classList.add('fade-out');
-                setTimeout(() => flashMessages.remove(), 500);
-            }
-        }, 5000);
-    </script>
-
-
     <form action="/upload" method="POST" enctype="multipart/form-data">
         <input type="file" multiple accept=".fits" name="file">
         <input type="submit" value="upload">
@@ -112,7 +107,6 @@
             </form>
         </div>
         {% endfor %}
-
     </div>
 
     {% else %}
@@ -121,54 +115,63 @@
 
     <progress id="progress-bar" value="0" max="100" style="width: 100%; display: none;"></progress>
 
-    <script>
-        function updateProgress(hipsId) {
-            fetch(`/get_progress?hips_id=${hipsId}`)
-                .then(response => response.json())
-                .then(data => {
-                    progressBar.value = data.progress;
-
-                    if (data.status === 'complete') {
-                        window.location.reload();
-                    } else if (data.status === 'error') {
-                        alert('Generation error!');
-                        progressBar.style.display = 'none';
-                    } else if (data.progress < 100) {
-                        setTimeout(() => updateProgress(hipsId), 1000);
-                    }
-                });
-        }
-
-        .then(data => {
-            if (data.hips_id) {
-                updateProgress(data.hips_id);
-            }
-        })
-    </script>
-
-
 
     {% if hips_id %}
     <h3>HiPS displayed :</h3>
     <div id="aladin-lite-div"></div>
     {% endif %}
 
+    <script>
+        function updateProgress(hipsId) {
+            fetch(`/get_progress?hips_id=${hipsId}`)
+                .then(response => response.json())
+                .then(data => {
+                    const progressBar = document.getElementById('progress-bar');
+                    progressBar.style.display = 'block';
+                    progressBar.value = data.progress;
+
+                    if (data.status === 'complete') {
+                        progressBar.style.display = 'none';
+                        // Afficher le HiPS avec Aladin Lite
+                        const aladinDiv = document.getElementById('aladin-lite-div');
+                        aladinDiv.innerHTML = '';
+                        A.init.then(() => {
+                            var aladin = A.aladin('#aladin-lite-div');
+                            aladin.setImageSurvey(aladin.createImageSurvey(
+                                hipsId,
+                                "Custom HiPS",
+                                `http://localhost:5000/hips/${hipsId}/`,
+                                "equatorial", 9,
+                                { imgFormat: 'png' }
+                            ));
+                        });
+                    } else if (data.status === 'error') {
+                        alert('Erreur lors de la génération du HiPS.');
+                        progressBar.style.display = 'none';
+                    } else {
+                        setTimeout(() => updateProgress(hipsId), 1000);
+                    }
+                });
+        }
+
+        document.getElementById('generate-form').addEventListener('submit', function (e) {
+            e.preventDefault();
+            const formData = new FormData(this);
+            fetch('/generate_hips', {
+                method: 'POST',
+                body: formData
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.hips_id) {
+                        updateProgress(data.hips_id);
+                    }
+                });
+        });
+    </script>
+
     <script type="text/javascript" src="https://aladin.u-strasbg.fr/AladinLite/api/v3/latest/aladin.js"
         charset="utf-8"></script>
-    <script type="text/javascript">
-        if (hipsId) {
-            A.init.then(() => {
-                var aladin = A.aladin('#aladin-lite-div');
-                aladin.setImageSurvey(aladin.createImageSurvey(
-                    hipsId,
-                    "Custom HiPS",
-                    "http://localhost:5000/hips/" + hipsId + "/",
-                    "equatorial", 9,
-                    { imgFormat: 'png' }
-                ));
-            });
-        }
-    </script>
 
 </body>
 
