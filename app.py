@@ -16,7 +16,7 @@ app.secret_key = 'your-secret-key'
 UPLOAD_FOLDER = 'uploads'
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 ALLOWED_EXTENSIONS = {'fits'}
-app.config['MAX_CONTENT_LENGTH'] = 4 * 1024 * 1024 * 1024  # 4 Go
+app.config['MAX_CONTENT_LENGTH'] = 5 * 1024 * 1024 * 1024  # 5 Go
 
 user_files = {}
 task_queue = {}
@@ -57,10 +57,10 @@ def generate_fits_tiles(output_folder, input_folder):
         print("❌ error generating fits tiles", e.stderr)
         return False
 
-def generate_png_tiles(output_folder):
+def generate_png_tiles(output_folder, input_folder):
     command = [
         "java", "-jar", "tools/Hipsgen.jar",
-        f"in={output_folder}",
+        f"in={input_folder}",
         f"out={output_folder}",
         "creator_did=test/P/HTTP/F658N",
         "pixelCut=0 5 log",
@@ -74,10 +74,40 @@ def generate_png_tiles(output_folder):
         print("❌ error generating png tiles", e.stderr)
         return False
 
-def count_tiles_by_extension(root_dir, ext):
+def generate_tiles_with_progress(command, output_folder, total_tiles,
+                                 start_pct, span_pct, hips_id):
+    """
+    Lance Hipsgen (TILES ou PNG) en mode non bloquant et met à jour task_queue
+    start_pct : pourcentage de début (p.ex. 2 pour FITS, 50 pour PNG)
+    span_pct  : largeur en pourcents de cette phase (p.ex. 48 pour FITS, 49 pour PNG)
+    """
+    # démarrage du process en arrière-plan
+    proc = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    ext = '.png' if command[-1] == 'PNG' else '.fits'
+
+    try:
+        # Tant que le process n'est pas terminé, on poll le dossier
+        while proc.poll() is None:
+            count = count_tiles_by_extension(output_folder, ext)
+            frac = min(count / total_tiles, 1.0)
+            pct = start_pct + int(frac * span_pct)
+            with progress_lock:
+                task_queue[hips_id]['progress'] = pct
+            time.sleep(0.5)
+
+        # Vérification du code de retour
+        if proc.returncode != 0:
+            err = proc.stderr.read().decode()
+            raise Exception(f"Hipsgen failed ({ext}): {err}")
+    finally:
+        # S'assurer que la barre atteint la fin de la phase
+        with progress_lock:
+            task_queue[hips_id]['progress'] = start_pct + span_pct
+
+def count_tiles_by_extension(root_dir, extension):
     count = 0
-    for root, _, files in os.walk(root_dir):
-        count += len([f for f in files if f.endswith(ext)])
+    for root, dirs, files in os.walk(root_dir):
+        count += sum(1 for f in files if f.lower().endswith(extension))
     return count
 
 def background_task(hips_id, filename, fits_path):
@@ -85,49 +115,41 @@ def background_task(hips_id, filename, fits_path):
         task_queue[hips_id] = {'progress': 0, 'status': 'running'}
 
     try:
-        hips_output_dir = os.path.join("hips", hips_id)
+        user_id = os.path.basename(os.path.dirname(fits_path))
+        file_basename = os.path.splitext(filename)[0]
+        hips_output_dir = os.path.join("hips", user_id, file_basename)
         os.makedirs(hips_output_dir, exist_ok=True)
 
+        # 1) Génération de l'index FITS
         if not generate_fits_index(hips_output_dir, fits_path):
             raise Exception("Erreur lors de la génération de l'index")
         with progress_lock:
             task_queue[hips_id]['progress'] = 2
 
+        # 2) Calcul du nombre total de tuiles
         moc_path = os.path.join(hips_output_dir, "HpxFinder", "Moc.fits")
         moc = MOC.load(moc_path)
         hips_order = moc.max_order
-        total_tiles = sum(len(moc.degrade_to_order(order).flatten()) for order in range(hips_order + 1))
-
+        total_tiles = sum(
+            len(moc.degrade_to_order(order).flatten())
+            for order in range(hips_order + 1)
+        )
         if total_tiles == 0:
             raise Exception("Aucune tuile à générer")
 
         user_folder = os.path.dirname(fits_path)
-        if not generate_fits_tiles(hips_output_dir, user_folder):
-            raise Exception("Erreur lors de la génération des tuiles FITS")
-        fits_dir = os.path.join(hips_output_dir, "FITS")
-        while True:
-            fits_count = count_tiles_by_extension(fits_dir, ".fits")
-            frac = min(fits_count / total_tiles, 1.0)
-            progress = 2 + int(frac * 48)
-            with progress_lock:
-                task_queue[hips_id]['progress'] = progress
-            if fits_count >= total_tiles:
-                break
-            time.sleep(0.5)
 
-        if not generate_png_tiles(hips_output_dir):
-            raise Exception("Erreur lors de la génération des tuiles PNG")
-        png_dir = os.path.join(hips_output_dir, "PNG")
-        while True:
-            png_count = count_tiles_by_extension(png_dir, ".png")
-            frac = min(png_count / total_tiles, 1.0)
-            progress = 50 + int(frac * 49)
-            with progress_lock:
-                task_queue[hips_id]['progress'] = progress
-            if png_count >= total_tiles:
-                break
-            time.sleep(0.5)
+        # 3) Phase FITS (TILES)
+        cmd_fits = generate_fits_tiles(hips_output_dir, user_folder)
+        generate_tiles_with_progress(cmd_fits, hips_output_dir, total_tiles,
+                                     start_pct=2, span_pct=48, hips_id=hips_id)
 
+        # 4) Phase PNG
+        cmd_png = generate_png_tiles(hips_output_dir, user_folder)
+        generate_tiles_with_progress(cmd_png, hips_output_dir, total_tiles,
+                                     start_pct=50, span_pct=49, hips_id=hips_id)
+
+        # 5) Fin
         with progress_lock:
             task_queue[hips_id]['progress'] = 100
             task_queue[hips_id]['status'] = 'complete'
@@ -217,13 +239,16 @@ def generate_hips():
         flash(f"❌ Fichier {filename} manquant")
         return redirect('/')
 
-    hips_id = f"{uuid.uuid4()}_{filename.rsplit('.', 1)[0]}"
+    file_basename = os.path.splitext(filename)[0]
+    hips_id = f"{user_id}/{file_basename}"
+    
     user_file_entry["hips_id"] = hips_id
+    
     Thread(target=background_task, args=(hips_id, filename, fits_path)).start()
 
     return jsonify({'hips_id': hips_id})
 
-@app.route("/get_progress")
+@app.route("/get_progress", methods=["GET"])
 def get_progress():
     hips_id = request.args.get('hips_id')
     if not hips_id:
