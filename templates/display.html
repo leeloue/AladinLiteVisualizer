@@ -31,7 +31,7 @@
     <script type="text/javascript" src="https://aladin.u-strasbg.fr/AladinLite/api/v3/latest/aladin.js"
         charset="utf-8"></script>
     <script type="text/javascript">
-        A.init.then(() => {
+        A.init().then(() => {
             let aladin = A.aladin('#aladin-lite-div');
 
             aladin.setImageSurvey(aladin.createImageSurvey(
@@ -44,6 +44,7 @@
             ));
         });
     </script>
+
     {% endif %}
 </body>
 

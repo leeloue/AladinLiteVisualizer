@@ -34,6 +34,7 @@ def generate_fits_index(output_folder, fits_file):
         "creator_did=test/P/HTTP/F658N",
         "INDEX"
     ]
+    print("🆗 running command:", ' '.join(cmd))
     try:
         subprocess.run(cmd, check=True, capture_output=True, text=True)
         return True
@@ -86,21 +87,16 @@ def generate_tiles_with_progress(command, output_folder, total_tiles, start_pct,
         with progress_lock:
             task_queue[hips_id]['progress'] = start_pct + span_pct
 
-def background_task(hips_id, filename, fits_path):
+def background_task(hips_id, filename, fits_path, user_id):
     with progress_lock:
         task_queue[hips_id] = {'progress': 0, 'status': 'running'}
 
     try:
-        user_id = os.path.basename(os.path.dirname(fits_path))
-        if filename:
-            basename = os.path.splitext(filename)[0]
-        else:
-            basename = f"multi_{int(time.time())}"
-        hips_output_dir = os.path.join("hips", user_id, basename)
+        hips_output_dir = os.path.join("hips", hips_id)
         os.makedirs(hips_output_dir, exist_ok=True)
 
         if not generate_fits_index(hips_output_dir, fits_path):
-            raise Exception("Erreur génération index")
+            raise Exception("failed to generate fits index")
         with progress_lock:
             task_queue[hips_id]['progress'] = 2
 
@@ -111,16 +107,15 @@ def background_task(hips_id, filename, fits_path):
             for o in range(order_max + 1)
         )
         if total_tiles == 0:
-            raise Exception("Aucune tuile à générer")
+            raise Exception("no tiles found")
 
-        user_folder = os.path.dirname(fits_path)
-
-        cmd_tiles = get_fits_tiles_cmd(user_folder, hips_output_dir)
+        input_path = fits_path
+        cmd_tiles = get_fits_tiles_cmd(input_path, hips_output_dir)
         generate_tiles_with_progress(cmd_tiles, hips_output_dir,
                                      total_tiles, start_pct=2, span_pct=48,
                                      hips_id=hips_id)
 
-        cmd_png = get_png_tiles_cmd(user_folder, hips_output_dir)
+        cmd_png = get_png_tiles_cmd(input_path, hips_output_dir)
         generate_tiles_with_progress(cmd_png, hips_output_dir,
                                      total_tiles, start_pct=50, span_pct=49,
                                      hips_id=hips_id)
@@ -133,7 +128,7 @@ def background_task(hips_id, filename, fits_path):
         with progress_lock:
             task_queue[hips_id]['progress'] = 100
             task_queue[hips_id]['status'] = 'error'
-        print("❌ Background task failed:", e)
+        print("❌ background task failed:", e)
 
 @app.route("/")
 def index():
@@ -182,33 +177,69 @@ def generate_hips():
         flash("❌ user unknown or no file selected")
         return redirect('/')
     
-##
+    ##
     if len(selected) > 1:
         files = []
         for all in selected:
             files += all.split(',')
 
         temp_dir = tempfile.mkdtemp()
-        for file in files:
-            name = os.path.basename(file)
-            path = os.path.join(temp_dir, name)
-            os.symlink(file, path)
-            flash(f"✅ {name} uploaded in temp dir")
-        hips_id= f"{user_id}/multi_{abs(hash('_'.join(files)))}"
-        Thread(target=background_task, args=(hips_id, None, temp_dir)).start()
-        return jsonify({'hips_id': hips_id})
-##
+        upload_dir = os.path.join(app.config['UPLOAD_FOLDER'], user_id)
+        for name in files:
+            src = os.path.join(os.path.abspath(upload_dir), name)
+            dst = os.path.join(temp_dir, name)
+            os.symlink(src, dst)
+            flash(f"✅ {name} linked in temp dir")
+        hips_id = f"{user_id}/multi_{abs(hash('_'.join(files)))}"
+        Thread(target=background_task, args=(hips_id, None, temp_dir, user_id)).start()
+
+        properties_path = os.path.join("hips", hips_id, "properties")
+        hips_ra = hips_dec = hips_fov = None
+        if os.path.exists(properties_path):
+            with open(properties_path) as f:
+                for line in f:
+                    if line.startswith("hips_initial_ra"):
+                        hips_ra = float(line.split("=")[1].strip())
+                    elif line.startswith("hips_initial_dec"):
+                        hips_dec = float(line.split("=")[1].strip())
+                    elif line.startswith("hips_initial_fov"):
+                        hips_fov = float(line.split("=")[1].strip())
+
+        print("🆗 ra : " + str(hips_ra))
+        print("🆗 dec : " + str(hips_dec))
+        print("🆗 fov : " + str(hips_fov))
+
+        return jsonify({'hips_id': hips_id, 'hips_ra': hips_ra, 'hips_dec': hips_dec, 'hips_fov': hips_fov})
+    ##
 
     filename = selected[0]
-    entry = next((e for e in user_files[user_id] if e['filename']==filename), None)
+    entry = next((e for e in user_files[user_id] if e['filename'] == filename), None)
     if not entry:
         flash("❌ file not found")
         return redirect('/')
     fits_path = os.path.join(app.config['UPLOAD_FOLDER'], user_id, filename)
     hips_id = f"{user_id}/{os.path.splitext(filename)[0]}"
     entry['hips_id'] = hips_id
-    Thread(target=background_task, args=(hips_id, filename, fits_path)).start()
-    return jsonify({'hips_id': hips_id})
+    Thread(target=background_task, args=(hips_id, filename, fits_path, user_id)).start()
+
+    properties_path = os.path.join("hips", hips_id, "properties")
+    hips_ra = hips_dec = hips_fov = None
+    if os.path.exists(properties_path):
+        with open(properties_path) as f:
+            for line in f:
+                if line.startswith("hips_initial_ra"):
+                    hips_ra = float(line.split("=")[1].strip())
+                elif line.startswith("hips_initial_dec"):
+                    hips_dec = float(line.split("=")[1].strip())
+                elif line.startswith("hips_initial_fov"):
+                    hips_fov = float(line.split("=")[1].strip())
+
+    print("🆗 ra : " + str(hips_ra))
+    print("🆗 dec : " + str(hips_dec))
+    print("🆗 fov : " + str(hips_fov))
+
+    return ({'hips_id': hips_id, 'hips_ra': hips_ra, 'hips_dec': hips_dec, 'hips_fov': hips_fov})
+
 
 @app.route("/get_progress")
 def get_progress():
@@ -297,8 +328,10 @@ def display_hips(filename):
     if filename not in hips_list:
         flash(f"❌ {filename} not found")
         return redirect('/display')
-
-    return render_template('display.html', files=hips_list)
+    
+    return render_template('display.html',
+                      files=hips_list,
+                      selected_file=filename)
 
 @app.errorhandler(413)
 def too_large(e):
