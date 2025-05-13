@@ -4,7 +4,7 @@ import time
 import uuid
 import subprocess
 from threading import Lock, Thread
-
+import tempfile
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
 
@@ -62,13 +62,13 @@ def get_png_tiles_cmd(input_folder, output_folder):
 
 def count_tiles_by_extension(root_dir, extension):
     count = 0
-    for files in os.walk(root_dir):
-        count += sum(1 for f in files if f.lower().endswith(extension))
+    for dirpath, dirnames, filenames in os.walk(root_dir):
+        count += sum(1 for f in filenames if f.lower().endswith(extension))
     return count
 
-def generate_tiles_with_progress(cmd, output_folder, total_tiles, start_pct, span_pct, hips_id):
-    proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-    ext = '.png' if cmd[-1] == 'PNG' else '.fits'
+def generate_tiles_with_progress(command, output_folder, total_tiles, start_pct, span_pct, hips_id):
+    proc = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    ext = '.png' if command[-1] == 'PNG' else '.fits'
 
     try:
         while proc.poll() is None:
@@ -86,14 +86,16 @@ def generate_tiles_with_progress(cmd, output_folder, total_tiles, start_pct, spa
         with progress_lock:
             task_queue[hips_id]['progress'] = start_pct + span_pct
 
-
 def background_task(hips_id, filename, fits_path):
     with progress_lock:
         task_queue[hips_id] = {'progress': 0, 'status': 'running'}
 
     try:
         user_id = os.path.basename(os.path.dirname(fits_path))
-        basename = os.path.splitext(filename)[0]
+        if filename:
+            basename = os.path.splitext(filename)[0]
+        else:
+            basename = f"multi_{int(time.time())}"
         hips_output_dir = os.path.join("hips", user_id, basename)
         os.makedirs(hips_output_dir, exist_ok=True)
 
@@ -133,7 +135,6 @@ def background_task(hips_id, filename, fits_path):
             task_queue[hips_id]['status'] = 'error'
         print("❌ Background task failed:", e)
 
-
 @app.route("/")
 def index():
     user_id = request.cookies.get('userID') or str(uuid.uuid4())
@@ -152,7 +153,6 @@ def index():
     resp.set_cookie('userID', user_id, expires=time.time() + 365*24*3600)
     return resp
 
-
 @app.route("/upload", methods=["POST"])
 def upload_file():
     user_id = request.cookies.get('userID')
@@ -161,7 +161,7 @@ def upload_file():
     files = request.files.getlist("file")
     valid = [f for f in files if f and allowed_file(f.filename)]
     if not valid:
-        flash("❌ Aucun .fits valide")
+        flash("❌ no valid file")
         return redirect('/')
     folder = os.path.join(app.config['UPLOAD_FOLDER'], user_id)
     os.makedirs(folder, exist_ok=True)
@@ -174,25 +174,41 @@ def upload_file():
         flash(f"✅ {name} uploaded")
     return redirect('/')
 
-
 @app.route("/generate_hips", methods=["POST"])
 def generate_hips():
     user_id = request.cookies.get('userID')
-    sel = request.form.getlist('selected_files')
-    if not user_id or not sel:
-        flash("❌ Erreur utilisateur ou sélection")
+    selected = request.form.getlist('selected_files')
+    if not user_id or not selected:
+        flash("❌ user unknown or no file selected")
         return redirect('/')
-    filename = sel[0]
+    
+##
+    if len(selected) > 1:
+        files = []
+        for all in selected:
+            files += all.split(',')
+
+        temp_dir = tempfile.mkdtemp()
+        for file in files:
+            name = os.path.basename(file)
+            path = os.path.join(temp_dir, name)
+            os.symlink(file, path)
+            flash(f"✅ {name} uploaded in temp dir")
+        hips_id= f"{user_id}/multi_{abs(hash('_'.join(files)))}"
+        Thread(target=background_task, args=(hips_id, None, temp_dir)).start()
+        return jsonify({'hips_id': hips_id})
+##
+
+    filename = selected[0]
     entry = next((e for e in user_files[user_id] if e['filename']==filename), None)
     if not entry:
-        flash("❌ Fichier introuvable")
+        flash("❌ file not found")
         return redirect('/')
     fits_path = os.path.join(app.config['UPLOAD_FOLDER'], user_id, filename)
     hips_id = f"{user_id}/{os.path.splitext(filename)[0]}"
     entry['hips_id'] = hips_id
     Thread(target=background_task, args=(hips_id, filename, fits_path)).start()
     return jsonify({'hips_id': hips_id})
-
 
 @app.route("/get_progress")
 def get_progress():
@@ -205,23 +221,21 @@ def get_progress():
         return jsonify(progress=0, status='unknown')
     return jsonify(progress=task['progress'], status=task['status'])
 
-
 @app.route("/deleteAll", methods=["POST"])
 def delete_all():
     user_id = request.cookies.get('userID')
     if not user_id or user_id not in user_files:
-        flash("❌ Utilisateur inconnu")
+        flash("❌ unknown user")
         return redirect('/')
     folder = os.path.join(app.config['UPLOAD_FOLDER'], user_id)
-    cnt = 0
+    counter = 0
     for e in user_files[user_id]:
         p = os.path.join(folder, e['filename'])
         if os.path.exists(p):
-            os.remove(p); cnt += 1
+            os.remove(p); counter += 1
     user_files[user_id] = []
-    flash(f"✅ {cnt} supprimé(s)" if cnt else "ℹ️ Rien à supprimer")
+    flash(f"✅ {counter} deleted" if counter else "ℹ️ nothing to delete")
     return redirect('/')
-
 
 @app.route('/hips/<path:filename>')
 def serve_hips(filename):
@@ -231,17 +245,60 @@ def serve_hips(filename):
 def delete_file(filename):
     user_id = request.cookies.get('userID')
     if not user_id or user_id not in user_files:
-        flash("❌ Utilisateur inconnu")
+        flash("❌ unknown user")
         return redirect('/')
     folder = os.path.join(app.config['UPLOAD_FOLDER'], user_id)
     p = os.path.join(folder, filename)
     if os.path.exists(p):
         os.remove(p)
         user_files[user_id] = [e for e in user_files[user_id] if e['filename'] != filename]
-        flash(f"✅ {filename} supprimé")
+        flash(f"✅ {filename} deleted")
     else:
-        flash(f"❌ {filename} introuvable")
+        flash(f"❌ {filename} not found")
     return redirect('/')
+    
+@app.route("/display", methods=["GET", "POST"])
+def display():
+    user_id = request.cookies.get('userID')
+    if not user_id:
+        flash("❌ unknown user")
+        return redirect('/')
+
+    folder = os.path.join("hips", user_id)
+    if not os.path.exists(folder):
+        flash("❌ no hips found")
+        return redirect('/')
+
+    hips_list = [d for d in os.listdir(folder)
+                 if os.path.isdir(os.path.join(folder, d))]
+
+    selected_file = None
+    if request.method == "POST":
+        selected_file = request.form.get("selected_file")
+        if selected_file not in hips_list:
+            flash(f"❌ {selected_file} not found")
+            selected_file = None
+
+    return render_template(
+        'display.html', files=hips_list, selected_file=selected_file)
+
+@app.route("/display/<filename>", methods=["POST"])
+def display_hips(filename):
+    user_id = request.cookies.get('userID')
+    if not user_id:
+        flash("❌ unknown user")
+        return redirect('/')
+    folder = os.path.join("hips", user_id)
+    if not os.path.exists(folder):
+        flash("❌ no hips found")
+        return redirect('/')
+    hips_list = [d for d in os.listdir(folder)
+                 if os.path.isdir(os.path.join(folder, d))]
+    if filename not in hips_list:
+        flash(f"❌ {filename} not found")
+        return redirect('/display')
+
+    return render_template('display.html', files=hips_list)
 
 @app.errorhandler(413)
 def too_large(e):
