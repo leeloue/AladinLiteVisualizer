@@ -1,4 +1,5 @@
-from flask import (Flask, render_template, request, flash, redirect, send_from_directory, make_response, jsonify)
+from flask import (Flask, render_template, request, flash,
+                   redirect, send_from_directory, make_response, jsonify)
 import os
 import time
 import uuid
@@ -23,26 +24,69 @@ user_files = {}
 task_queue = {}
 progress_lock = Lock()
 
+
 def allowed_file(filename):
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+    """
+    Check if the file has a valid extension.
+
+    Args:
+        filename (str): Name of the file to check.
+
+    Returns:
+        bool: True if the file has a valid extension, False otherwise.
+    """
+    return (
+        '.' in filename and
+        filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+    )
+
 
 def generate_fits_index(output_folder, fits_file):
+    """
+    Generate the FITS index for the input file
+    and save it in the output folder,
+    using a Java command line.
+
+    Args:
+        output_folder (str): Path to the output folder.
+        fits_file (str): Path to the input FITS file.
+
+    Returns:
+        bool: True if the index was generated successfully, False otherwise.
+    """
     cmd = [
         "java", "-jar", "tools/Hipsgen.jar",
         f"in={fits_file}",
         f"out={output_folder}",
         "creator_did=test/P/HTTP/F658N",
-        "INDEX"
+        "INDEX",
     ]
     print("🆗 running command:", ' '.join(cmd))
+
     try:
-        subprocess.run(cmd, check=True, capture_output=True, text=True)
+        subprocess.run(
+            cmd,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
         return True
+
     except subprocess.CalledProcessError as e:
         print("❌ error generating fits index", e.stderr)
         return False
 
+
 def get_fits_tiles_cmd(input_folder, output_folder):
+    """
+    Generate the command to create tiles from a FITS file.
+
+    Args:
+        filename (str): Name of the file to check.
+
+    Returns:
+        bool: True if the file has a valid extension, False otherwise.
+    """
     return [
         "java", "-jar", "tools/Hipsgen.jar",
         f"in={input_folder}",
@@ -51,7 +95,17 @@ def get_fits_tiles_cmd(input_folder, output_folder):
         "TILES"
     ]
 
+
 def get_png_tiles_cmd(input_folder, output_folder):
+    """
+    Generate the command to create png from a FITS file.
+
+    Args:
+        filename (str): Name of the file to check.
+
+    Returns:
+        bool: True if the file has a valid extension, False otherwise.
+    """
     return [
         "java", "-jar", "tools/Hipsgen.jar",
         f"in={input_folder}",
@@ -61,14 +115,43 @@ def get_png_tiles_cmd(input_folder, output_folder):
         "PNG"
     ]
 
+
 def count_tiles_by_extension(root_dir, extension):
+    """
+    Count the number of files with a specific extension in a directory.
+
+    Args:
+        root_dir (str): Path to the root directory.
+        extension (str): File extension to count.
+
+    Returns:
+        int: Number of files with the specified extension.
+    """
     count = 0
     for dirpath, dirnames, filenames in os.walk(root_dir):
         count += sum(1 for f in filenames if f.lower().endswith(extension))
     return count
 
-def generate_tiles_with_progress(command, output_folder, total_tiles, start_pct, span_pct, hips_id):
-    proc = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+
+def generate_tiles_with_progress(command, output_folder,
+                                 total_tiles, start_pct,
+                                 span_pct, hips_id):
+    """
+    Generate tiles with progress tracking.
+
+    Args:
+        command (list): Command to execute for tile generation.
+        output_folder (str): Path to the output folder.
+        total_tiles (int): Total number of tiles to generate.
+        start_pct (int): Starting percentage for progress.
+        span_pct (int): Percentage span for progress.
+        hips_id (str): Unique identifier for the HIPS task.
+    """
+    proc = subprocess.Popen(
+        command,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+    )
     ext = '.png' if command[-1] == 'PNG' else '.fits'
 
     try:
@@ -83,101 +166,205 @@ def generate_tiles_with_progress(command, output_folder, total_tiles, start_pct,
         if proc.returncode != 0:
             err = proc.stderr.read().decode()
             raise Exception(f"Hipsgen failed ({ext}): {err}")
+
     finally:
         with progress_lock:
             task_queue[hips_id]['progress'] = start_pct + span_pct
 
+
 def background_task(hips_id, filename, fits_path, user_id):
+    """
+    Background task to generate HiPS tiles and PNGs.
+    This function runs in a separate thread. It generates the FITS index,
+    tiles, and PNGs, and updates the progress in the task queue.
+
+    Args:
+        hips_id (str): Unique identifier for the HiPS task.
+        filename (str): Name of the input FITS file.
+        fits_path (str): Path to the input FITS file.
+        user_id (str): Unique identifier for the user.
+    """
     with progress_lock:
-        task_queue[hips_id] = {'progress': 0, 'status': 'running'}
+        task_queue[hips_id] = {"progress": 0, "status": "running"}
 
     try:
         hips_output_dir = os.path.join("hips", hips_id)
         os.makedirs(hips_output_dir, exist_ok=True)
 
         if not generate_fits_index(hips_output_dir, fits_path):
-            raise Exception("failed to generate fits index")
-        with progress_lock:
-            task_queue[hips_id]['progress'] = 2
+            raise Exception("Failed to generate FITS index")
 
-        moc = MOC.load(os.path.join(hips_output_dir, "HpxFinder", "Moc.fits"))
+        with progress_lock:
+            task_queue[hips_id]["progress"] = 2
+
+        moc_path = os.path.join(hips_output_dir, "HpxFinder", "Moc.fits")
+        moc = MOC.load(moc_path)
         order_max = moc.max_order
+
         total_tiles = sum(
             len(moc.degrade_to_order(o).flatten())
             for o in range(order_max + 1)
         )
+
         if total_tiles == 0:
-            raise Exception("no tiles found")
+            raise Exception("No tiles found")
 
-        input_path = fits_path
-        cmd_tiles = get_fits_tiles_cmd(input_path, hips_output_dir)
-        generate_tiles_with_progress(cmd_tiles, hips_output_dir,
-                                     total_tiles, start_pct=2, span_pct=48,
-                                     hips_id=hips_id)
+        cmd_tiles = get_fits_tiles_cmd(fits_path, hips_output_dir)
+        generate_tiles_with_progress(
+            cmd_tiles,
+            hips_output_dir,
+            total_tiles,
+            start_pct=2,
+            span_pct=48,
+            hips_id=hips_id,
+        )
 
-        cmd_png = get_png_tiles_cmd(input_path, hips_output_dir)
-        generate_tiles_with_progress(cmd_png, hips_output_dir,
-                                     total_tiles, start_pct=50, span_pct=49,
-                                     hips_id=hips_id)
+        cmd_png = get_png_tiles_cmd(fits_path, hips_output_dir)
+        generate_tiles_with_progress(
+            cmd_png,
+            hips_output_dir,
+            total_tiles,
+            start_pct=50,
+            span_pct=49,
+            hips_id=hips_id,
+        )
 
         with progress_lock:
-            task_queue[hips_id]['progress'] = 100
-            task_queue[hips_id]['status'] = 'complete'
+            task_queue[hips_id]["progress"] = 100
+            task_queue[hips_id]["status"] = "complete"
 
     except Exception as e:
         with progress_lock:
-            task_queue[hips_id]['progress'] = 100
-            task_queue[hips_id]['status'] = 'error'
-        print("❌ background task failed:", e)
+            task_queue[hips_id]["progress"] = 100
+            task_queue[hips_id]["status"] = "error"
+
+        print("❌ Background task failed:", e)
+
 
 @app.route("/")
 def index():
-    user_id = request.cookies.get('userID') or str(uuid.uuid4())
-    user_folder = os.path.join(app.config['UPLOAD_FOLDER'], user_id)
+    """
+    Render the main page with the upload form and list of uploaded files.
+    This function checks if the user has a unique identifier as a cookie.
+    If not, it generates a new one and sets it in the cookies.
+    It also creates a folder for the user to store uploaded files.
+    If the user has already uploaded files, it retrieves them from the folder
+    and displays them in the upload form.
+
+    Returns:
+        Response:
+            Rendered HTML template with the upload form and list of files.
+    """
+    user_id = request.cookies.get("userID") or str(uuid.uuid4())
+    user_folder = os.path.join(app.config["UPLOAD_FOLDER"], user_id)
     os.makedirs(user_folder, exist_ok=True)
 
     if user_id not in user_files:
         user_files[user_id] = [
             {"filename": f, "hips_id": None}
-            for f in os.listdir(user_folder) if f.endswith(".fits")
+            for f in os.listdir(user_folder)
+            if f.endswith(".fits")
         ]
 
     files = user_files[user_id]
-    latest = next((f['hips_id'] for f in files[::-1] if f['hips_id']), None)
-    resp = make_response(render_template('upload_form.html', files=files, hips_id=latest))
-    resp.set_cookie('userID', user_id, expires=time.time() + 365*24*3600)
+    latest = next(
+        (f["hips_id"] for f in reversed(files) if f["hips_id"]),
+        None,
+    )
+
+    resp = make_response(
+        render_template(
+            "upload_form.html",
+            files=files,
+            hips_id=latest,
+        )
+    )
+    resp.set_cookie(
+        "userID",
+        user_id,
+        expires=time.time() + 365 * 24 * 3600,  # 1 year
+    )
     return resp
+
 
 @app.route("/upload", methods=["POST"])
 def upload_file():
+    """
+    Handle the file upload from the user.
+    This function checks if the user has a unique identifier as a cookie.
+    If not, it redirects to the main page.
+    It also checks if the uploaded files are valid.
+    If they are it saves them in the user's folder.
+    If the files are valid, it adds them to the user's file list.
+    If no valid files are found, it displays an error message.
+    If the user has already uploaded files, it retrieves them from the folder
+    and displays them in the upload form.
+
+    Returns:
+        Response:
+            Redirect to the main page with a success or error message.
+    """
     user_id = request.cookies.get('userID')
     if not user_id:
         return redirect('/')
+
     files = request.files.getlist("file")
     valid = [f for f in files if f and allowed_file(f.filename)]
+
     if not valid:
         flash("❌ no valid file")
         return redirect('/')
+
     folder = os.path.join(app.config['UPLOAD_FOLDER'], user_id)
     os.makedirs(folder, exist_ok=True)
+
     for f in valid:
         name = secure_filename(f.filename)
         path = os.path.join(folder, name)
         f.save(path)
-        if not any(e['filename']==name for e in user_files.setdefault(user_id, [])):
-            user_files[user_id].append({"filename": name, "hips_id": None})
-        flash(f"✅ {name} uploaded")
+        if not any(e['filename'] == name for e in user_files.setdefault(
+            user_id, [])
+        ):
+            user_files[user_id].append({
+                "filename": name,
+                "hips_id": None,
+            })
     return redirect('/')
+
 
 @app.route("/generate_hips", methods=["POST"])
 def generate_hips():
+    """
+    Launch the generation of HiPS tiles and PNGs for one or more FITS files.
+
+    This route handles the generation process based on the selected files.
+    It first checks for the presence of a user identifier stored in cookies and
+    verifies that at least one file has been selected. If multiple files are
+    selected, it creates a temporary directory and links the input files into
+    it to build acombined HiPS dataset. For a single file, it starts the
+    process directly.
+
+    The HiPS generation runs in a background thread and stores output
+    in a uniquedirectory named using the user ID. The function attempts
+    to read HiPS metadata (RA, Dec, FOV) from the resulting properties file
+    and returns it in a JSON response.
+
+    Returns:
+        Response: A JSON response containing:
+            - hips_id(str): Unique identifier for the generated HiPS.
+            - hips_ra (float | None): init right ascension from HiPS metadata.
+            - hips_dec (float | None): init declination from HiPS metadata.
+            - hips_fov (float | None): init field of view from HiPS metadata.
+
+    """
+
     user_id = request.cookies.get('userID')
     selected = request.form.getlist('selected_files')
     if not user_id or not selected:
         flash("❌ user unknown or no file selected")
         return redirect('/')
-    
-    ##
+
+    # if the user selected multiple files
     if len(selected) > 1:
         files = []
         for all in selected:
@@ -191,17 +378,27 @@ def generate_hips():
             os.symlink(src, dst)
             flash(f"✅ {name} linked in temp dir")
         hips_id = f"{user_id}/multi_{abs(hash('_'.join(files)))}"
-        Thread(target=background_task, args=(hips_id, None, temp_dir, user_id)).start()
+        Thread(
+            target=background_task,
+            args=(hips_id,
+                  None,
+                  temp_dir,
+                  user_id,
+                  )).start()
 
         properties_path = os.path.join("hips", hips_id, "properties")
         hips_ra = hips_dec = hips_fov = None
+
         if os.path.exists(properties_path):
             with open(properties_path) as f:
+
                 for line in f:
                     if line.startswith("hips_initial_ra"):
                         hips_ra = float(line.split("=")[1].strip())
+
                     elif line.startswith("hips_initial_dec"):
                         hips_dec = float(line.split("=")[1].strip())
+
                     elif line.startswith("hips_initial_fov"):
                         hips_fov = float(line.split("=")[1].strip())
 
@@ -209,28 +406,54 @@ def generate_hips():
         print("🆗 dec : " + str(hips_dec))
         print("🆗 fov : " + str(hips_fov))
 
-        return jsonify({'hips_id': hips_id, 'hips_ra': hips_ra, 'hips_dec': hips_dec, 'hips_fov': hips_fov})
-    ##
+        return jsonify({
+            'hips_id': hips_id,
+            'hips_ra': hips_ra,
+            'hips_dec': hips_dec,
+            'hips_fov': hips_fov
+        })
 
+    # if the user selected only one file
     filename = selected[0]
-    entry = next((e for e in user_files[user_id] if e['filename'] == filename), None)
+    entry = next((
+        e for e in user_files[user_id] if e['filename'] == filename),
+        None
+    )
+
     if not entry:
         flash("❌ file not found")
         return redirect('/')
-    fits_path = os.path.join(app.config['UPLOAD_FOLDER'], user_id, filename)
-    hips_id = f"{user_id}/{os.path.splitext(filename)[0]}"
-    entry['hips_id'] = hips_id
-    Thread(target=background_task, args=(hips_id, filename, fits_path, user_id)).start()
 
-    properties_path = os.path.join("hips", hips_id, "properties")
+    fits_path = os.path.join(app.config["UPLOAD_FOLDER"], user_id, filename)
+    hips_id = f"{user_id}/{os.path.splitext(filename)[0]}"
+    entry["hips_id"] = hips_id
+
+    Thread(
+        target=background_task,
+        args=(
+            hips_id,
+            filename,
+            fits_path,
+            user_id,
+        ),
+    ).start()
+
+    properties_path = os.path.join(
+        "hips",
+        hips_id,
+        "properties",
+    )
     hips_ra = hips_dec = hips_fov = None
     if os.path.exists(properties_path):
         with open(properties_path) as f:
+
             for line in f:
                 if line.startswith("hips_initial_ra"):
                     hips_ra = float(line.split("=")[1].strip())
+
                 elif line.startswith("hips_initial_dec"):
                     hips_dec = float(line.split("=")[1].strip())
+
                 elif line.startswith("hips_initial_fov"):
                     hips_fov = float(line.split("=")[1].strip())
 
@@ -238,11 +461,28 @@ def generate_hips():
     print("🆗 dec : " + str(hips_dec))
     print("🆗 fov : " + str(hips_fov))
 
-    return ({'hips_id': hips_id, 'hips_ra': hips_ra, 'hips_dec': hips_dec, 'hips_fov': hips_fov})
+    return ({
+        'hips_id': hips_id,
+        'hips_ra': hips_ra,
+        'hips_dec': hips_dec,
+        'hips_fov': hips_fov,
+    })
 
 
 @app.route("/get_progress")
 def get_progress():
+    """
+    Get the progress of the HiPS generation task.
+
+    Checks the progress of the HiPS generation task based on the unique
+    identifier (`hips_id`) provided in the request. Returns the current
+    progress percentage and status if the task exists.
+
+    Returns:
+        Response: A JSON response containing:
+            - progress (int): Progress percentage of the HiPS task.
+            - status (str): Current status of the HiPS task.
+    """
     hips_id = request.args.get('hips_id')
     if not hips_id:
         return jsonify(progress=0, status='unknown')
@@ -252,44 +492,94 @@ def get_progress():
         return jsonify(progress=0, status='unknown')
     return jsonify(progress=task['progress'], status=task['status'])
 
+
 @app.route("/deleteAll", methods=["POST"])
 def delete_all():
+    """
+    Delete all uploaded FITS files for the current user.
+
+    This function identifies the user by their cookie.
+    If the user is known, it deletes all their uploaded files
+    from the server and clears their entry from the user_files list.
+    A flash message is displayed based on the result.
+    """
     user_id = request.cookies.get('userID')
     if not user_id or user_id not in user_files:
         flash("❌ unknown user")
         return redirect('/')
+
     folder = os.path.join(app.config['UPLOAD_FOLDER'], user_id)
     counter = 0
+
     for e in user_files[user_id]:
-        p = os.path.join(folder, e['filename'])
-        if os.path.exists(p):
-            os.remove(p); counter += 1
+        path = os.path.join(folder, e['filename'])
+        if os.path.exists(path):
+            os.remove(path)
+            counter += 1
+
     user_files[user_id] = []
+
     flash(f"✅ {counter} deleted" if counter else "ℹ️ nothing to delete")
     return redirect('/')
 
+
 @app.route('/hips/<path:filename>')
 def serve_hips(filename):
+    """
+    Serve a HiPS file from the 'hips' directory.
+
+    Args:
+        filename (str): Path to the file within the 'hips' directory.
+
+    Returns:
+        Response: The requested file as a Flask response.
+    """
     return send_from_directory('hips', filename)
+
 
 @app.route("/delete/<filename>", methods=["POST"])
 def delete_file(filename):
+    """
+    Delete a specific file from the user's uploaded files.
+
+    Args:
+        filename (str): Name of the file to delete.
+
+    Returns:
+        Response: Redirect to the main page with a success or error message.
+    """
     user_id = request.cookies.get('userID')
+
     if not user_id or user_id not in user_files:
         flash("❌ unknown user")
         return redirect('/')
+
     folder = os.path.join(app.config['UPLOAD_FOLDER'], user_id)
-    p = os.path.join(folder, filename)
-    if os.path.exists(p):
-        os.remove(p)
-        user_files[user_id] = [e for e in user_files[user_id] if e['filename'] != filename]
+    path = os.path.join(folder, filename)
+
+    if os.path.exists(path):
+        os.remove(path)
+        user_files[user_id] = [e for e in user_files[user_id]
+                               if e['filename'] != filename]
         flash(f"✅ {filename} deleted")
     else:
         flash(f"❌ {filename} not found")
+
     return redirect('/')
-    
+
+
 @app.route("/display", methods=["GET", "POST"])
 def display():
+    """
+    Display the list of HiPS files for the current user.
+
+    Args:
+        request (Request): The incoming request object.
+        response (Response): The outgoing response object.
+
+    Returns:
+        Response: Rendered HTML template with the list of HiPS files.
+    """
     user_id = request.cookies.get('userID')
     if not user_id:
         flash("❌ unknown user")
@@ -311,32 +601,64 @@ def display():
             selected_file = None
 
     return render_template(
-        'display.html', files=hips_list, selected_file=selected_file)
+        'display.html',
+        files=hips_list,
+        selected_file=selected_file
+    )
+
 
 @app.route("/display/<filename>", methods=["POST"])
 def display_hips(filename):
+    """
+    Display a specific HiPS file for the current user.
+    This function checks if the user has a unique identifier as a cookie.
+    If not, it redirects to the main page.
+
+    Args:
+        filename (str): Name of the HiPS file to display.
+        request (Request): The incoming request object.
+        response (Response): The outgoing response object.
+
+    Returns:
+        Response: Rendered HTML template with the selected HiPS file.
+    """
     user_id = request.cookies.get('userID')
     if not user_id:
         flash("❌ unknown user")
         return redirect('/')
+
     folder = os.path.join("hips", user_id)
+
     if not os.path.exists(folder):
         flash("❌ no hips found")
         return redirect('/')
+
     hips_list = [d for d in os.listdir(folder)
                  if os.path.isdir(os.path.join(folder, d))]
+
     if filename not in hips_list:
         flash(f"❌ {filename} not found")
         return redirect('/display')
-    
+
     return render_template('display.html',
-                      files=hips_list,
-                      selected_file=filename)
+                           files=hips_list,
+                           selected_file=filename)
+
 
 @app.errorhandler(413)
 def too_large(e):
+    """
+    Handle the 413 error (Request Entity Too Large).
+
+    Args:
+        e (Exception): The exception object.
+
+    Returns:
+        Response: Redirect to the main page with an error message.
+    """
     flash("file too large : max 5Gb")
     return redirect('/')
+
 
 if __name__ == "__main__":
     app.run(debug=True)
