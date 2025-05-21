@@ -8,7 +8,7 @@ from threading import Lock, Thread
 import tempfile
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
-
+import shutil
 from mocpy import MOC
 
 app = Flask(__name__)
@@ -260,11 +260,16 @@ def index():
     os.makedirs(user_folder, exist_ok=True)
 
     if user_id not in user_files:
-        user_files[user_id] = [
-            {"filename": f, "hips_id": None}
-            for f in os.listdir(user_folder)
-            if f.endswith(".fits")
-        ]
+        user_files[user_id] = []
+        for f in os.listdir(user_folder):
+            if f.endswith(".fits"):
+                full_path = os.path.join(user_folder, f)
+                size_mb = round(os.path.getsize(full_path) / (1024 * 1024), 2)
+                user_files[user_id].append({
+                    "filename": f,
+                    "hips_id": None,
+                    "fileweight": size_mb,
+                })
 
     files = user_files[user_id]
     latest = next(
@@ -322,53 +327,36 @@ def upload_file():
         name = secure_filename(f.filename)
         path = os.path.join(folder, name)
         f.save(path)
+        file_size_mb = round(os.path.getsize(path) / (1024 * 1024), 2)
         if not any(e['filename'] == name for e in user_files.setdefault(
             user_id, [])
         ):
             user_files[user_id].append({
                 "filename": name,
                 "hips_id": None,
+                "fileweight": file_size_mb,
             })
     return redirect('/')
 
 
 @app.route("/generate_hips", methods=["POST"])
 def generate_hips():
-    """
-    Launch the generation of HiPS tiles and PNGs for one or more FITS files.
-
-    This route handles the generation process based on the selected files.
-    It first checks for the presence of a user identifier stored in cookies and
-    verifies that at least one file has been selected. If multiple files are
-    selected, it creates a temporary directory and links the input files into
-    it to build acombined HiPS dataset. For a single file, it starts the
-    process directly.
-
-    The HiPS generation runs in a background thread and stores output
-    in a uniquedirectory named using the user ID. The function attempts
-    to read HiPS metadata (RA, Dec, FOV) from the resulting properties file
-    and returns it in a JSON response.
-
-    Returns:
-        Response: A JSON response containing:
-            - hips_id(str): Unique identifier for the generated HiPS.
-            - hips_ra (float | None): init right ascension from HiPS metadata.
-            - hips_dec (float | None): init declination from HiPS metadata.
-            - hips_fov (float | None): init field of view from HiPS metadata.
-
-    """
-
     user_id = request.cookies.get('userID')
     selected = request.form.getlist('selected_files')
+    project_name = request.form.get('project_name', '').strip()
+
     if not user_id or not selected:
         flash("❌ user unknown or no file selected")
         return redirect('/')
 
-    # if the user selected multiple files
     if len(selected) > 1:
+        if not project_name:
+            flash("❌ name your project")
+            return redirect('/')
+
         files = []
-        for all in selected:
-            files += all.split(',')
+        for all_files in selected:
+            files += all_files.split(',')
 
         temp_dir = tempfile.mkdtemp()
         upload_dir = os.path.join(app.config['UPLOAD_FOLDER'], user_id)
@@ -377,7 +365,10 @@ def generate_hips():
             dst = os.path.join(temp_dir, name)
             os.symlink(src, dst)
             flash(f"✅ {name} linked in temp dir")
-        hips_id = f"{user_id}/multi_{abs(hash('_'.join(files)))}"
+
+        safe_project_name = project_name.replace("/", "_").replace("\\", "_")
+        hips_id = f"{user_id}/{safe_project_name}"
+
         Thread(
             target=background_task,
             args=(hips_id,
@@ -391,14 +382,11 @@ def generate_hips():
 
         if os.path.exists(properties_path):
             with open(properties_path) as f:
-
                 for line in f:
                     if line.startswith("hips_initial_ra"):
                         hips_ra = float(line.split("=")[1].strip())
-
                     elif line.startswith("hips_initial_dec"):
                         hips_dec = float(line.split("=")[1].strip())
-
                     elif line.startswith("hips_initial_fov"):
                         hips_fov = float(line.split("=")[1].strip())
 
@@ -413,10 +401,10 @@ def generate_hips():
             'hips_fov': hips_fov
         })
 
-    # if the user selected only one file
+    # Cas fichier unique
     filename = selected[0]
     entry = next((
-        e for e in user_files[user_id] if e['filename'] == filename),
+        e for e in user_files.get(user_id, []) if e['filename'] == filename),
         None
     )
 
@@ -425,7 +413,9 @@ def generate_hips():
         return redirect('/')
 
     fits_path = os.path.join(app.config["UPLOAD_FOLDER"], user_id, filename)
-    hips_id = f"{user_id}/{os.path.splitext(filename)[0]}"
+
+    base_name = project_name if project_name else os.path.splitext(filename)[0]
+    hips_id = f"{user_id}/{base_name}"
     entry["hips_id"] = hips_id
 
     Thread(
@@ -446,14 +436,11 @@ def generate_hips():
     hips_ra = hips_dec = hips_fov = None
     if os.path.exists(properties_path):
         with open(properties_path) as f:
-
             for line in f:
                 if line.startswith("hips_initial_ra"):
                     hips_ra = float(line.split("=")[1].strip())
-
                 elif line.startswith("hips_initial_dec"):
                     hips_dec = float(line.split("=")[1].strip())
-
                 elif line.startswith("hips_initial_fov"):
                     hips_fov = float(line.split("=")[1].strip())
 
@@ -461,12 +448,12 @@ def generate_hips():
     print("🆗 dec : " + str(hips_dec))
     print("🆗 fov : " + str(hips_fov))
 
-    return ({
+    return {
         'hips_id': hips_id,
         'hips_ra': hips_ra,
         'hips_dec': hips_dec,
         'hips_fov': hips_fov,
-    })
+    }
 
 
 @app.route("/get_progress")
@@ -568,6 +555,36 @@ def delete_file(filename):
     return redirect('/')
 
 
+@app.route("/delete/<user_id>/<hipex_id>", methods=["POST"])
+def delete_hips(user_id, hipex_id):
+    """
+    Delete the entire HiPS folder for the given hipex_id.
+
+    Args:
+        user_id (str): ID of the user (from URL, but validated via cookie).
+        hipex_id (str): Unique identifier for the HiPS dataset.
+
+    Returns:
+        Response: Redirect to the main page with a success or error message.
+    """
+    cookie_user_id = request.cookies.get('userID')
+    if (
+        not cookie_user_id
+        or cookie_user_id != user_id
+        or (user_id not in user_files)
+    ):
+        flash("❌ unknown or unauthorized user")
+        return redirect('/display')
+    folder = os.path.join("hips", user_id, hipex_id)
+    if os.path.exists(folder):
+        shutil.rmtree(folder)
+        flash(f"✅ HiPS folder '{hipex_id}' deleted")
+    else:
+        flash(f"❌ HiPS folder '{hipex_id}' not found")
+
+    return redirect('/display')
+
+
 @app.route("/display", methods=["GET", "POST"])
 def display():
     """
@@ -643,6 +660,45 @@ def display_hips(filename):
     return render_template('display.html',
                            files=hips_list,
                            selected_file=filename)
+
+
+@app.route("/infos", methods=["GET"])
+def infos():
+    """
+    Display the information of a specific HiPS file.
+
+    Args:
+        fov (float): Field of view of the HiPS file.
+        ra (float): Right Ascension of the HiPS file.
+        dec (float): Declination of the HiPS file.
+
+    Returns:
+        Response: Rendered HTML template with the HiPS file information.
+    """
+    hips_id = request.args.get('hips_id')
+    properties_path = os.path.join("hips", hips_id, "properties")
+    hips_ra = hips_dec = hips_fov = None
+
+    if os.path.exists(properties_path):
+        with open(properties_path) as f:
+            for line in f:
+                if line.startswith("hips_initial_ra"):
+                    hips_ra = float(line.split("=")[1].strip())
+                elif line.startswith("hips_initial_dec"):
+                    hips_dec = float(line.split("=")[1].strip())
+                elif line.startswith("hips_initial_fov"):
+                    hips_fov = float(line.split("=")[1].strip())
+
+    print("🆗 ra : " + str(hips_ra))
+    print("🆗 dec : " + str(hips_dec))
+    print("🆗 fov : " + str(hips_fov))
+
+    return jsonify({
+        'hips_id': hips_id,
+        'hips_ra': hips_ra,
+        'hips_dec': hips_dec,
+        'hips_fov': hips_fov
+    })
 
 
 @app.errorhandler(413)

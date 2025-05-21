@@ -45,6 +45,13 @@
             max-width: 300px;
             font-family: sans-serif;
         }
+
+        #file-selection {
+            margin: 20px;
+            max-height: 200px;
+            overflow-y: auto;
+            padding: 10px;
+        }
     </style>
 </head>
 
@@ -75,27 +82,89 @@
 
     <h3>Uploaded files</h3>
     {% if files %}
-    <p>Select one or multiple files to generate a HiPS</p>
-    <form id="generate-form" action="/generate_hips" method="POST">
+    <form id="generate-form" action="/generate_hips" method="POST" onsubmit="return beforeSubmit()">
+        <input type="hidden" name="project_name" id="project_name">
         <button type="submit">Generate HiPS</button>
     </form>
     <form action="/deleteAll" method="POST" style="display:inline;">
         <button type="submit">Delete all</button>
-    </form>
-    <div style="margin-top:10px;">
+    </form> <br>
+
+    <button type="button" onclick="checkAll()">Select all</button>
+    <button type="button" onclick="uncheckAll()">Unselect all</button>
+
+    <div style="margin-top:10px;" id="file-selection">
         {% for f in files %}
         <label style="display:flex; align-items:center; gap:10px;">
-            <input type="checkbox" name="selected_files" value="{{ f.filename }}" form="generate-form">
-            {{ f.filename }}
+            <input type="checkbox" name="selected_files" value="{{ f.filename }}" form="generate-form" class="checkbox"
+                {% if f.selected %}checked{% endif %}>
+            {{ f.filename }} ({{ f.fileweight }} MB)
             <form action="/delete/{{ f.filename }}" method="POST" style="margin:0;">
                 <button type="submit" style="padding:0 5px;">🗑️</button>
             </form>
         </label>
         {% endfor %}
     </div>
+
+    <script>
+        function beforeSubmit() {
+            const checkboxes = document.querySelectorAll('input[name="selected_files"]:checked');
+            const selectedCount = checkboxes.length;
+
+            if (selectedCount === 0) {
+                alert("Veuillez sélectionner au moins un fichier.");
+                return false;
+            }
+
+            const existingNames = Array.from(document.querySelectorAll('input[name="selected_files"]'))
+                .map(cb => cb.value.toLowerCase());
+
+            const promptMsg = "Entrez un nom pour le projet HiPS :";
+            const userInput = prompt(promptMsg);
+
+            if (userInput === null) {
+                return false; // Cancel
+            }
+
+            const projectName = userInput.trim();
+
+            if (selectedCount === 1) {
+                const selectedFilename = checkboxes[0].value;
+                document.getElementById("project_name").value = projectName === "" ? selectedFilename : projectName;
+                return true;
+            }
+
+            if (projectName === "") {
+                alert("Veuillez entrer un nom pour le projet.");
+                return false;
+            }
+
+            if (existingNames.includes(projectName.toLowerCase())) {
+                alert("Ce nom de projet existe déjà parmi les fichiers. Veuillez en choisir un autre.");
+                return false;
+            }
+
+            document.getElementById("project_name").value = projectName;
+            return true;
+        }
+    </script>
+
     {% else %}
     <p>No uploaded files</p>
     {% endif %}
+
+    <script>
+        function checkAll() {
+            const checkboxes = document.querySelectorAll('.checkbox');
+            checkboxes.forEach(cb => cb.checked = true);
+        }
+
+        function uncheckAll() {
+            const checkboxes = document.querySelectorAll('.checkbox');
+            checkboxes.forEach(cb => cb.checked = false);
+        }
+    </script>
+
 
     <div id="progress-container">
         <progress id="progress-bar" max="100" value="0" style="width:100%;"></progress>
@@ -170,14 +239,32 @@
 
             function showAladin(hipsId) {
                 aladinDiv.style.display = 'block';
-                const hipsUrl = `${window.location.origin}/hips/${hipsId}/`;
-                console.log('showAladin: hipsUrl =', hipsUrl);
+                const hipsUrl = `${window.location.origin}/hips/${hipsId}`;
+
+                let hips_fov, hips_ra, hips_dec
 
                 A.init.then(() => {
-                    A.aladin('#aladin-lite-div', {
-                        survey: hipsUrl,
-                        target: '0 0'
-                    });
+                    let aladin
+                    aladin = A.aladin('#aladin-lite-div',
+                        { survey: hipsUrl }
+                    );
+                    fetch(`/infos?hips_id=${encodeURIComponent(hipsId)}`, { method: "GET" })
+                        .then(response => {
+                            if (!response.ok) {
+                                throw new Error('Network response was not ok');
+                            }
+                            return response.json();
+                        })
+                        .then(data => {
+                            hips_fov = data.hips_fov;
+                            hips_ra = data.hips_ra;
+                            hips_dec = data.hips_dec;
+                            aladin.gotoRaDec(hips_ra, hips_dec);
+                            aladin.setFoV(hips_fov);
+                        })
+                        .catch(error => {
+                            console.error('Error fetching HiPS info:', error);
+                        });
                 })
                     .catch(err => {
                         console.error('Aladin init error:', err);
