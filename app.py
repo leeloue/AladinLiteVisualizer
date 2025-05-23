@@ -242,7 +242,7 @@ def background_task(hips_id, filename, fits_path, user_id):
 
 
 @app.route("/")
-def index():
+def home():
     """
     Render the main page with the upload form and list of uploaded files.
     This function checks if the user has a unique identifier as a cookie.
@@ -259,29 +259,39 @@ def index():
     user_folder = os.path.join(app.config["UPLOAD_FOLDER"], user_id)
     os.makedirs(user_folder, exist_ok=True)
 
-    if user_id not in user_files:
-        user_files[user_id] = []
-        for f in os.listdir(user_folder):
-            if f.endswith(".fits"):
-                full_path = os.path.join(user_folder, f)
-                size_mb = round(os.path.getsize(full_path) / (1024 * 1024), 2)
-                user_files[user_id].append({
-                    "filename": f,
-                    "hips_id": None,
-                    "fileweight": size_mb,
-                })
-
+    user_files[user_id] = []
+    for f in os.listdir(user_folder):
+        if f.endswith(".fits"):
+            full_path = os.path.join(user_folder, f)
+            size_mb = round(os.path.getsize(full_path) / (1024 * 1024), 2)
+            hips_id = next((file.get("hips_id") for file in user_files.get(
+                user_id, []) if file["filename"] == f), None)
+            user_files[user_id].append({
+                "filename": f,
+                "hips_id": hips_id,
+                "fileweight": size_mb,
+            })
     files = user_files[user_id]
     latest = next(
         (f["hips_id"] for f in reversed(files) if f["hips_id"]),
         None,
     )
 
+    folder = os.path.join("hips", user_id)
+    if not os.path.exists(folder):
+        flash("❌ no folder found")
+        return redirect('/')
+
+    hips_list = [d for d in os.listdir(folder)
+                 if os.path.isdir(os.path.join(folder, d))]
+
     resp = make_response(
         render_template(
-            "upload_form.html",
+            "home.html",
             files=files,
             hips_id=latest,
+            hips_list=hips_list,
+            selected_file=None,
         )
     )
     resp.set_cookie(
@@ -290,6 +300,89 @@ def index():
         expires=time.time() + 365 * 24 * 3600,  # 1 year
     )
     return resp
+
+
+@app.route("/fits-images")
+def fits_images():
+    """
+    Render the page with the list of FITS images.
+    This function checks if the user has a unique identifier as a cookie.
+    If not, it redirects to the main page.
+
+    Returns:
+        Response:
+            Rendered HTML template with the list of FITS images.
+    """
+    user_id = request.cookies.get("userID")
+    if not user_id:
+        return redirect('/')
+
+    folder = os.path.join(app.config["UPLOAD_FOLDER"], user_id)
+    os.makedirs(folder, exist_ok=True)
+
+    files = []
+    for f in os.listdir(folder):
+        if f.endswith(".fits"):
+            full_path = os.path.join(folder, f)
+            size_mb = round(os.path.getsize(full_path) / (1024 * 1024), 2)
+            hips_id = next((file.get("hips_id") for file in user_files.get(
+                user_id, []) if file["filename"] == f), None)
+            files.append({
+                "filename": f,
+                "fileweight": size_mb,
+                "hips_id": hips_id,
+            })
+    return render_template("fits_images.html", files=files)
+
+
+@app.route("/hips-datasets", methods=["GET", "POST"])
+def hips_images():
+    user_id = request.cookies.get("userID")
+    if not user_id:
+        flash("❌ unknown user")
+        return redirect('/')
+
+    folder = os.path.join("hips", user_id)
+    if not os.path.exists(folder):
+        flash("❌ no folder found")
+        return redirect('/')
+
+    hips_list = [d for d in os.listdir(folder)
+                 if os.path.isdir(os.path.join(folder, d))]
+
+    if not hips_list:
+        flash("❌ no hips found")
+        return redirect('/fits-images')
+
+    selected_file = None
+    if request.method == "POST":
+        selected_file = request.form.get("selected_file")
+        if selected_file not in hips_list:
+            flash(f"❌ {selected_file} not found")
+            selected_file = None
+
+    hips_url = f"/hips/{user_id}/{selected_file}/"
+
+    return render_template("hips_datasets.html",
+                           files=hips_list,
+                           selected_file=selected_file,
+                           hips_url=hips_url,
+                           hips_id=selected_file,)
+
+
+@app.route("/web-pages")
+def web_pages():
+    """
+    Serve a web page from the 'web-pages' directory.
+
+    Args:
+        filename (str): Path to the file within the 'web-pages' directory.
+
+    Returns:
+        Response: The requested file as a Flask response.
+    """
+
+    return render_template('web_pages.html')
 
 
 @app.route("/upload", methods=["POST"])
@@ -336,7 +429,7 @@ def upload_file():
                 "hips_id": None,
                 "fileweight": file_size_mb,
             })
-    return redirect('/')
+    return redirect('/fits-images')
 
 
 @app.route("/generate_hips", methods=["POST"])
@@ -480,6 +573,20 @@ def get_progress():
     return jsonify(progress=task['progress'], status=task['status'])
 
 
+@app.route('/hips/<path:filename>')
+def serve_hips(filename):
+    """
+    Serve a HiPS file from the 'hips' directory.
+
+    Args:
+        filename (str): Path to the file within the 'hips' directory.
+
+    Returns:
+        Response: The requested file as a Flask response.
+    """
+    return send_from_directory('hips', filename)
+
+
 @app.route("/deleteAll", methods=["POST"])
 def delete_all():
     """
@@ -507,21 +614,7 @@ def delete_all():
     user_files[user_id] = []
 
     flash(f"✅ {counter} deleted" if counter else "ℹ️ nothing to delete")
-    return redirect('/')
-
-
-@app.route('/hips/<path:filename>')
-def serve_hips(filename):
-    """
-    Serve a HiPS file from the 'hips' directory.
-
-    Args:
-        filename (str): Path to the file within the 'hips' directory.
-
-    Returns:
-        Response: The requested file as a Flask response.
-    """
-    return send_from_directory('hips', filename)
+    return redirect('/fits-images')
 
 
 @app.route("/delete/<filename>", methods=["POST"])
@@ -552,7 +645,7 @@ def delete_file(filename):
     else:
         flash(f"❌ {filename} not found")
 
-    return redirect('/')
+    return redirect('/fits-images')
 
 
 @app.route("/delete/<user_id>/<hipex_id>", methods=["POST"])
@@ -582,84 +675,7 @@ def delete_hips(user_id, hipex_id):
     else:
         flash(f"❌ HiPS folder '{hipex_id}' not found")
 
-    return redirect('/display')
-
-
-@app.route("/display", methods=["GET", "POST"])
-def display():
-    """
-    Display the list of HiPS files for the current user.
-
-    Args:
-        request (Request): The incoming request object.
-        response (Response): The outgoing response object.
-
-    Returns:
-        Response: Rendered HTML template with the list of HiPS files.
-    """
-    user_id = request.cookies.get('userID')
-    if not user_id:
-        flash("❌ unknown user")
-        return redirect('/')
-
-    folder = os.path.join("hips", user_id)
-    if not os.path.exists(folder):
-        flash("❌ no hips found")
-        return redirect('/')
-
-    hips_list = [d for d in os.listdir(folder)
-                 if os.path.isdir(os.path.join(folder, d))]
-
-    selected_file = None
-    if request.method == "POST":
-        selected_file = request.form.get("selected_file")
-        if selected_file not in hips_list:
-            flash(f"❌ {selected_file} not found")
-            selected_file = None
-
-    return render_template(
-        'display.html',
-        files=hips_list,
-        selected_file=selected_file
-    )
-
-
-@app.route("/display/<filename>", methods=["POST"])
-def display_hips(filename):
-    """
-    Display a specific HiPS file for the current user.
-    This function checks if the user has a unique identifier as a cookie.
-    If not, it redirects to the main page.
-
-    Args:
-        filename (str): Name of the HiPS file to display.
-        request (Request): The incoming request object.
-        response (Response): The outgoing response object.
-
-    Returns:
-        Response: Rendered HTML template with the selected HiPS file.
-    """
-    user_id = request.cookies.get('userID')
-    if not user_id:
-        flash("❌ unknown user")
-        return redirect('/')
-
-    folder = os.path.join("hips", user_id)
-
-    if not os.path.exists(folder):
-        flash("❌ no hips found")
-        return redirect('/')
-
-    hips_list = [d for d in os.listdir(folder)
-                 if os.path.isdir(os.path.join(folder, d))]
-
-    if filename not in hips_list:
-        flash(f"❌ {filename} not found")
-        return redirect('/display')
-
-    return render_template('display.html',
-                           files=hips_list,
-                           selected_file=filename)
+    return redirect('/hips-datasets')
 
 
 @app.route("/infos", methods=["GET"])
@@ -675,8 +691,9 @@ def infos():
     Returns:
         Response: Rendered HTML template with the HiPS file information.
     """
+    user_id = request.cookies.get('userID')
     hips_id = request.args.get('hips_id')
-    properties_path = os.path.join("hips", hips_id, "properties")
+    properties_path = os.path.join("hips", user_id, hips_id, "properties")
     hips_ra = hips_dec = hips_fov = None
 
     if os.path.exists(properties_path):
