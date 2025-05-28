@@ -1,4 +1,5 @@
-from flask import (Flask, render_template, request, flash,
+import secrets
+from flask import (Flask, json, render_template, request, flash,
                    redirect, send_from_directory, make_response, jsonify)
 import os
 import time
@@ -372,17 +373,38 @@ def hips_images():
 
 @app.route("/web-pages")
 def web_pages():
-    """
-    Serve a web page from the 'web-pages' directory.
+    user_id = request.cookies.get("userID")
+    print(f"[DEBUG] user_id from cookie: {user_id}")
+    if not user_id:
+        flash("❌ unknown user")
+        return redirect('/')
 
-    Args:
-        filename (str): Path to the file within the 'web-pages' directory.
+    folder = os.path.join("hips", user_id)
+    hips_list = []
+    if os.path.isdir(folder):
+        for name in os.listdir(folder):
+            index_path = os.path.join(folder, name, 'index.html')
+            if os.path.isfile(index_path):
+                hips_list.append(name)
 
-    Returns:
-        Response: The requested file as a Flask response.
-    """
+    shared_hips_list = []
+    metadata_path = os.path.join("shared-pages", "shared_pages.json")
+    if os.path.exists(metadata_path):
+        with open(metadata_path, "r") as f:
+            data = json.load(f)
+        for public_id, info in data.items():
+            if info["user_id"] == user_id:
+                shared_hips_list.append({
+                    "id": public_id,
+                    "name": f"Shared HiPS ({', '.join(info['hips'])})"
+                })
 
-    return render_template('web_pages.html')
+    print(f"[DEBUG] shared_hips_list: {shared_hips_list}")
+
+    return render_template("web_pages.html",
+                           hips_list=hips_list,
+                           shared_hips_list=shared_hips_list,
+                           user_id=user_id)
 
 
 @app.route("/upload", methods=["POST"])
@@ -678,6 +700,97 @@ def delete_hips(user_id, hipex_id):
     return redirect('/hips-datasets')
 
 
+@app.route("/generate_web_page", methods=["POST"])
+def generate_web_page():
+    user_id = request.cookies.get("userID")
+    if not user_id:
+        flash("❌ unknown user")
+        return redirect('/')
+
+    selected_hips = request.form.getlist("selected_hips")
+    if not selected_hips:
+        flash("❌ please select at least one HiPS to share")
+        return redirect('/web-pages')
+
+    public_id = secrets.token_hex(8)
+    shared_dir = os.path.join("shared-pages", public_id)
+    os.makedirs(shared_dir, exist_ok=True)
+
+    for hips_id in selected_hips:
+        source_path = os.path.join("hips", user_id, hips_id)
+        dest_path = os.path.join(shared_dir, hips_id)
+        if os.path.isdir(source_path):
+            shutil.copytree(source_path, dest_path)
+
+    metadata_path = os.path.join("shared-pages", "shared_pages.json")
+    if os.path.exists(metadata_path):
+        with open(metadata_path, "r") as f:
+            data = json.load(f)
+    else:
+        data = {}
+
+    data[public_id] = {
+        "user_id": user_id,
+        "hips": selected_hips
+    }
+
+    with open(metadata_path, "w") as f:
+        json.dump(data, f)
+
+    flash("✅ web page generated successfully ")
+    return redirect('/web-pages')
+
+
+@app.route('/web-pages/<path:filename>')
+def serve_shared_hips(filename):
+    return send_from_directory('web-pages', filename)
+
+
+@app.route("/shared/<public_id>", methods=["GET", "POST"])
+def shared_page(public_id):
+    metadata_path = os.path.join("shared-pages", "shared_pages.json")
+
+    if not os.path.exists(metadata_path):
+        flash("❌ Aucune page partagée disponible.")
+        return redirect("/")
+
+    with open(metadata_path, "r") as f:
+        data = json.load(f)
+
+    if public_id not in data:
+        flash("❌ Page partagée invalide.")
+        return redirect("/")
+
+    info = data[public_id]
+    hips_list = info.get("hips", [])
+
+    selected_file = None
+    hips_url = None
+    hips_id = None
+
+    if request.method == "POST":
+        selected_file = request.form.get("selected_file")
+        if selected_file not in hips_list:
+            flash("❌ Fichier HiPS invalide.")
+            return redirect(f"/shared/{public_id}")
+
+        hips_url = f"/shared-pages/{public_id}/{selected_file}/"
+        hips_id = f"{public_id}_{selected_file}"
+
+    return render_template("shared_page.html",
+                           public_id=public_id,
+                           hips_list=hips_list,
+                           selected_file=selected_file,
+                           hips_url=hips_url,
+                           hips_id=hips_id)
+
+
+@app.route('/shared-pages/<public_id>/<path:filename>')
+def shared_pages(public_id, filename):
+    directory = os.path.join('shared-pages', public_id)
+    return send_from_directory(directory, filename)
+
+
 @app.route("/infos", methods=["GET"])
 def infos():
     """
@@ -709,6 +822,41 @@ def infos():
     print("🆗 ra : " + str(hips_ra))
     print("🆗 dec : " + str(hips_dec))
     print("🆗 fov : " + str(hips_fov))
+
+    return jsonify({
+        'hips_id': hips_id,
+        'hips_ra': hips_ra,
+        'hips_dec': hips_dec,
+        'hips_fov': hips_fov
+    })
+
+
+@app.route("/shared_infos", methods=["GET"])
+def shared_infos():
+    hips_id = request.args.get('hips_id')
+
+    if not hips_id or "_" not in hips_id:
+        return jsonify({'error': 'Invalid hips_id parameter'}), 400
+    public_id, selected_file = hips_id.split("_", 1)
+
+    properties_path = os.path.join("shared-pages",
+                                   public_id,
+                                   selected_file,
+                                   "properties")
+
+    hips_ra = hips_dec = hips_fov = None
+
+    if os.path.exists(properties_path):
+        with open(properties_path) as f:
+            for line in f:
+                if line.startswith("hips_initial_ra"):
+                    hips_ra = float(line.split("=")[1].strip())
+                elif line.startswith("hips_initial_dec"):
+                    hips_dec = float(line.split("=")[1].strip())
+                elif line.startswith("hips_initial_fov"):
+                    hips_fov = float(line.split("=")[1].strip())
+    else:
+        return jsonify({'error': 'Properties file not found'}), 404
 
     return jsonify({
         'hips_id': hips_id,
