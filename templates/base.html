@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>{% block title %}My HiPS Project{% endblock %}</title>
+    <link rel="stylesheet" href="../static/css/style.css">
+</head>
+
+<body>
+    <nav>
+        <ul>
+            <li><a href="/">Home</a></li>
+            <li><a href="/fits-images">Generate HiPS</a></li>
+            <li><a href="/hips-datasets">Visualize your HiPS</a></li>
+            <li><a href="/web-pages">Share your HiPS</a></li>
+        </ul>
+    </nav>
+
+    <div id="flash-container">
+        {% with messages = get_flashed_messages() %}
+        {% for message in messages %}
+        <div class="flash-popup">{{ message }}</div>
+        {% endfor %}
+        {% endwith %}
+    </div>
+
+    <div class="content">
+        {% block content %}{% endblock %}
+    </div>
+
+    <script>
+        document.querySelectorAll('.flash-popup').forEach(popup => {
+            setTimeout(() => {
+                popup.style.opacity = '0';
+                setTimeout(() => popup.remove(), 1500);
+            }, 6000);
+        });
+    </script>
+</body>
+
+</html>

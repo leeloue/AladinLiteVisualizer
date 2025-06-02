@@ -1,90 +1,70 @@
-<!DOCTYPE html>
-<html>
+{% extends "base.html" %}
 
-<head>
-    <title>Displaying your FITS files</title>
-    <meta charset="utf-8">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-</head>
+{% block title %}Web Pages{% endblock %}
 
-<body>
-    <h2>Displaying your HiPS files</h2>
-    <div id="flash-container">
-        {% with messages = get_flashed_messages() %}
-        {% for message in messages %}
-        <div class="flash-popup">{{ message }}</div>
-        {% endfor %}
-        {% endwith %}
+{% block content %}
+<h2>Displaying your HiPS files</h2>
+
+<script>const userID = "{{ request.cookies.get('userID') }}";</script>
+
+<form id="display-form" action="/hips-datasets" method="POST">
+</form>
+
+<div style="margin-top:10px;" id="file-selection">
+    {% for file in files %}
+    <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 5px;">
+        <label style="display: flex; align-items: center; gap: 10px; margin: 0;">
+            <input type="radio" name="selected_file" value="{{ file }}" form="display-form"
+                onclick="displaySelectedHiPS()" {% if selected_file==file %}checked{% endif %}>
+            {{ file }}
+        </label>
+        <form action="/delete/{{ request.cookies.get('userID') }}/{{ file }}" method="POST" style="margin: 0;">
+            <button type="submit" style="padding: 0 5px;">🗑️</button>
+        </form>
     </div>
-    <script>
-        document.querySelectorAll('.flash-popup').forEach(popup => {
-            setTimeout(() => {
-                popup.style.opacity = '0';
-                setTimeout(() => popup.remove(), 1500);
-            }, 6000);
-        });
-    </script>
+    {% endfor %}
+</div>
 
-    <script>const userID = "{{ request.cookies.get('userID') }}";</script>
+<script>
+    function displaySelectedHiPS() {
+        const form = document.getElementById('display-form');
+        form.submit();
+    }
+</script>
 
-    <form id="display-form" action="/hips-datasets" method="POST">
-    </form>
+<div id="progress-container">
+    <progress id="progress-bar" max="100" value="0" style="width:100%;"></progress>
+    <div id="progress-status"></div>
+</div>
 
-    <div style="margin-top:10px;" id="file-selection">
-        {% for file in files %}
-        <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 5px;">
-            <label style="display: flex; align-items: center; gap: 10px; margin: 0;">
-                <input type="radio" name="selected_file" value="{{ file }}" form="display-form"
-                    onclick="displaySelectedHiPS()" {% if selected_file==file %}checked{% endif %}>
-                {{ file }}
-            </label>
-            <form action="/delete/{{ request.cookies.get('userID') }}/{{ file }}" method="POST" style="margin: 0;">
-                <button type="submit" style="padding: 0 5px;">🗑️</button>
-            </form>
-        </div>
-        {% endfor %}
-    </div>
+{% if selected_file %}
+<div id="aladin-lite-div"></div>
+<script type="text/javascript" src="https://aladin.u-strasbg.fr/AladinLite/api/v3/latest/aladin.js"
+    charset="utf-8"></script>
+<script>
+    A.init.then(() => {
+        const hipsUrl = "{{ hips_url }}";
+        let aladin = A.aladin('#aladin-lite-div',
+            { survey: hipsUrl }
+        );
 
-    <script>
-        function displaySelectedHiPS() {
-            const form = document.getElementById('display-form');
-            form.submit();
-        }
-    </script>
+        fetch(`/infos?hips_id={{ hips_id }}`)
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Erreur réseau');
+                }
+                return response.json();
+            })
+            .then(data => {
+                aladin.gotoRaDec(data.hips_ra, data.hips_dec);
+                aladin.setFoV(data.hips_fov);
+            })
+            .catch(error => {
+                console.error('Erreur chargement HiPS info:', error);
+            });
+    });
+</script>
+{% endif %}
 
-    <div id="progress-container">
-        <progress id="progress-bar" max="100" value="0" style="width:100%;"></progress>
-        <div id="progress-status"></div>
-    </div>
 
-    {% if selected_file %}
-    <div id="aladin-lite-div"></div>
-    <script type="text/javascript" src="https://aladin.u-strasbg.fr/AladinLite/api/v3/latest/aladin.js"
-        charset="utf-8"></script>
-    <script>
-        A.init.then(() => {
-            const hipsUrl = "{{ hips_url }}";
-            let aladin = A.aladin('#aladin-lite-div',
-                { survey: hipsUrl }
-            );
-
-            fetch(`/infos?hips_id={{ hips_id }}`)
-                .then(response => {
-                    if (!response.ok) {
-                        throw new Error('Erreur réseau');
-                    }
-                    return response.json();
-                })
-                .then(data => {
-                    aladin.gotoRaDec(data.hips_ra, data.hips_dec);
-                    aladin.setFoV(data.hips_fov);
-                })
-                .catch(error => {
-                    console.error('Erreur chargement HiPS info:', error);
-                });
-        });
-    </script>
-    {% endif %}
-</body>
-
-</html>
+{% endblock %}

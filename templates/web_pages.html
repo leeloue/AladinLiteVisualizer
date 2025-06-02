@@ -1,90 +1,67 @@
-<!DOCTYPE html>
-<html>
+{% extends "base.html" %}
 
-<head>
-    <meta charset="utf-8">
-    <title>Your HiPS Web Pages</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-</head>
+{% block title %}Web Pages{% endblock %}
 
-<body>
+{% block content %}
 
-    <h2>Your Generated HiPS Visualizations</h2>
+<h2>Your Generated HiPS Visualizations</h2>
 
-    <div id="flash-container">
-        {% with messages = get_flashed_messages() %}
-        {% for message in messages %}
-        <div class="flash-popup">{{ message }}</div>
-        {% endfor %}
-        {% endwith %}
-    </div>
+<h3>Your HiPS</h3>
+{% if hips_list %}
+<div style="margin-bottom: 10px;">
+    <button onclick="selectAll()">Select all</button>
+    <button onclick="unselectAll()">Unselect all</button>
+</div>
 
-    <script>
-        document.querySelectorAll('.flash-popup').forEach(popup => {
-            setTimeout(() => {
-                popup.style.opacity = '0';
-                setTimeout(() => popup.remove(), 1500);
-            }, 6000);
+<form id="hips-form" action="/generate_web_page" method="POST">
+    {% for hips in hips_list %}
+    <li style="margin-bottom: 8px;">
+        <label style="display: flex; align-items: center; gap: 10px;">
+            <input type="checkbox" class="hips-checkbox" name="selected_hips" value="{{ hips }}">
+            {{ hips }}
+        </label>
+    </li>
+    {% endfor %}
+    <button type="submit">Generate Web Page</button>
+</form>
+{% else %}
+<p>you haven't generated any HiPS web pages yet</p>
+{% endif %}
+
+<script>
+    function selectAll() {
+        document.querySelectorAll('.hips-checkbox').forEach(cb => cb.checked = true);
+    }
+
+    function unselectAll() {
+        document.querySelectorAll('.hips-checkbox').forEach(cb => cb.checked = false);
+    }
+
+    function copyToClipboard(text) {
+        navigator.clipboard.writeText(location.origin + text).then(() => {
+            alert("Link copied to clipboard!");
         });
-    </script>
+    }
+</script>
 
-    <h3>Your HiPS</h3>
-    {% if hips_list %}
-    <div style="margin-bottom: 10px;">
-        <button onclick="selectAll()">Select all</button>
-        <button onclick="unselectAll()">Unselect all</button>
-    </div>
+<h3>Your shared HiPS / generated web pages</h3>
+{% if shared_hips_list %}
+<ul>
+    {% for shared in shared_hips_list %}
+    <li style="margin-bottom: 15px;">
+        <div>
+            {{ shared.name }}
+            <br>
+            <a href="{{ url_for('shared_page', public_id=shared.id) }}" target="_blank">View Shared Page</a>
+            <button type="button" onclick="copyToClipboard('/shared/{{ shared.id }}')">Copy Link</button>
+        </div>
+    </li>
+    {% endfor %}
 
-    <form id="hips-form" action="/generate_web_page" method="POST">
-        {% for hips in hips_list %}
-        <li style="margin-bottom: 8px;">
-            <label style="display: flex; align-items: center; gap: 10px;">
-                <input type="checkbox" class="hips-checkbox" name="selected_hips" value="{{ hips }}">
-                {{ hips }}
-            </label>
-        </li>
-        {% endfor %}
-        <button type="submit">Generate Web Page</button>
-    </form>
-    {% else %}
-    <p>you haven't generated any HiPS web pages yet</p>
-    {% endif %}
+</ul>
+{% else %}
+<p>You haven't shared any HiPS web pages yet</p>
+{% endif %}
 
-    <script>
-        function selectAll() {
-            document.querySelectorAll('.hips-checkbox').forEach(cb => cb.checked = true);
-        }
 
-        function unselectAll() {
-            document.querySelectorAll('.hips-checkbox').forEach(cb => cb.checked = false);
-        }
-
-        function copyToClipboard(text) {
-            navigator.clipboard.writeText(location.origin + text).then(() => {
-                alert("Link copied to clipboard!");
-            });
-        }
-    </script>
-
-    <h3>Your shared HiPS / generated web pages</h3>
-    {% if shared_hips_list %}
-    <ul>
-        {% for shared in shared_hips_list %}
-        <li style="margin-bottom: 15px;">
-            <div>
-                {{ shared.name }}
-                <br>
-                <a href="{{ url_for('shared_page', public_id=shared.id) }}" target="_blank">View Shared Page</a>
-                <button type="button" onclick="copyToClipboard('/shared/{{ shared.id }}')">Copy Link</button>
-            </div>
-        </li>
-        {% endfor %}
-
-    </ul>
-    {% else %}
-    <p>You haven't shared any HiPS web pages yet</p>
-    {% endif %}
-
-</body>
-
-</html>
+{% endblock %}

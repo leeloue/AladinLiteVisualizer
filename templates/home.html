@@ -1,67 +1,45 @@
-<!DOCTYPE html>
-<html>
+{% extends "base.html" %}
 
-<head>
-    <meta charset="utf-8">
-    <title>Aladin Lite Visualiser</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-</head>
+{% block title %}Web Pages{% endblock %}
 
-<body>
-    <h2>Welcome to Aladin Lite Visualizer</h2>
-    <div id="flash-container">
-        {% with messages = get_flashed_messages() %}
-        {% for message in messages %}
-        <div class="flash-popup">{{ message }}</div>
-        {% endfor %}
-        {% endwith %}
-    </div>
-    <script>
-        document.querySelectorAll('.flash-popup').forEach(popup => {
-            setTimeout(() => {
-                popup.style.opacity = '0';
-                setTimeout(() => popup.remove(), 1500);
-            }, 6000);
-        });
-    </script>
+{% block content %}
 
+<h2>Welcome to Aladin Lite Visualizer</h2>
 
-    {% set n = files|length %}
-    <p>
-        {% if n == 0 %}
-        You haven't uploaded any FITS files yet
-        {% else %}
-        You uploaded {{ n }} FITS file{{ 's' if n > 1 else '' }}
-        {% endif %}
-    </p>
-    <ul>
-        <a href="/fits-images"><button>Manage your FITS files</button></a>
-    </ul>
-    <br>
-    {% set n = hips_list|length %}
-    <p>
-        {% if n == 0 %}
-        You haven't generated any HiPS yet
-        {% else %}
-        You generated {{ n }} HiPS dataset{{ 's' if n > 1 else '' }}
-        {% endif %}
-    </p>
-    <ul>
-        <a href="/hips-datasets"><button>Manage your HIPS images</button></a>
-    </ul>
-    <br>
-    {% set n = web_list|length %}
-    <p>
-        {% if n == 0 %}
-        You haven't generated any web pages yet
-        {% else %}
-        You generated {{ n }} web page{{ 's' if n > 1 else '' }}
-        {% endif %}
-    </p>
-    <ul>
-        <a href="/web-pages"><button>Manage your web pages</button></a>
-    </ul>
+{% set n = files|length %}
+<p>
+    {% if n == 0 %}
+    You haven't uploaded any FITS files yet
+    {% else %}
+    You uploaded {{ n }} FITS file{{ 's' if n > 1 else '' }}
+    {% endif %}
+</p>
+<ul>
+    <a href="/fits-images"><button>Manage your FITS files</button></a>
+</ul>
+<br>
+{% set n = hips_list|length %}
+<p>
+    {% if n == 0 %}
+    You haven't generated any HiPS yet
+    {% else %}
+    You generated {{ n }} HiPS dataset{{ 's' if n > 1 else '' }}
+    {% endif %}
+</p>
+<ul>
+    <a href="/hips-datasets"><button>Manage your HIPS images</button></a>
+</ul>
+<br>
+{% set n = web_list|length %}
+<p>
+    {% if n == 0 %}
+    You haven't generated any web pages yet
+    {% else %}
+    You generated {{ n }} web page{{ 's' if n > 1 else '' }}
+    {% endif %}
+</p>
+<ul>
+    <a href="/web-pages"><button>Manage your web pages</button></a>
+</ul>
 
-</body>
-
-</html>
+{% endblock %}
