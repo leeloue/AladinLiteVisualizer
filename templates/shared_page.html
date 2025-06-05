@@ -3,7 +3,8 @@
 {% block title %}Web Pages{% endblock %}
 
 {% block content %}
-
+<br>
+<br>
 
 <form id="display-form" action="/shared/{{ public_id }}" method="POST">
 </form>
@@ -14,8 +15,7 @@
         style="display: flex; align-items: center; gap: 10px; margin-bottom: 5px;">
         <input type="hidden" name="selected_file" value="{{ file }}">
         <input type="radio" name="selected_file_dummy" disabled {% if selected_file==file %}checked{% endif %}>
-        <button type="submit"
-            style="background: none; border: none; color: blue; cursor: pointer; text-decoration: underline;">
+        <button type="submit">
             {{ file }}
         </button>
     </form>

@@ -1,6 +1,7 @@
 import secrets
 from flask import (Flask, json, render_template, request, flash,
-                   redirect, send_from_directory, make_response, jsonify)
+                   redirect, send_from_directory, make_response, jsonify,
+                   url_for)
 import os
 import time
 import uuid
@@ -11,6 +12,7 @@ from flask_cors import CORS
 from werkzeug.utils import secure_filename
 import shutil
 from mocpy import MOC
+
 
 app = Flask(__name__)
 CORS(app)
@@ -260,7 +262,8 @@ def home():
     user_folder = os.path.join(app.config["UPLOAD_FOLDER"], user_id)
     os.makedirs(user_folder, exist_ok=True)
 
-    user_files[user_id] = []
+    if user_id not in user_files:
+        user_files[user_id] = []
     for f in os.listdir(user_folder):
         if f.endswith(".fits"):
             full_path = os.path.join(user_folder, f)
@@ -286,6 +289,17 @@ def home():
     hips_list = [d for d in os.listdir(folder)
                  if os.path.isdir(os.path.join(folder, d))]
 
+    shared_pages_path = "shared-pages/shared_pages.json"
+    web_list = []
+
+    if os.path.exists(shared_pages_path):
+        with open(shared_pages_path, "r") as f:
+            shared_pages = json.load(f)
+        web_list = [
+            page_id for page_id, data in shared_pages.items()
+            if data.get("user_id") == user_id
+        ]
+
     resp = make_response(
         render_template(
             "home.html",
@@ -293,6 +307,7 @@ def home():
             hips_id=latest,
             hips_list=hips_list,
             selected_file=None,
+            web_list=web_list,
         )
     )
     resp.set_cookie(
@@ -369,6 +384,48 @@ def hips_images():
                            selected_file=selected_file,
                            hips_url=hips_url,
                            hips_id=selected_file,)
+
+
+@app.route("/visualiser", methods=["GET", "POST"])
+def visu():
+    user_id = request.cookies.get("userID")
+    if not user_id:
+        flash("❌ unknown user")
+        return redirect('/')
+
+    folder = os.path.join("hips", user_id)
+    if not os.path.exists(folder):
+        flash("❌ no folder found")
+        return redirect('/')
+
+    hips_list = [d for d in os.listdir(folder)
+                 if os.path.isdir(os.path.join(folder, d))]
+
+    if not hips_list:
+        flash("❌ no hips found")
+        return redirect('/fits-images')
+
+    search_query = request.args.get('search', '').strip()
+    if search_query:
+        hips_list = [f for f in hips_list if search_query.lower() in f.lower()]
+        if not hips_list:
+            flash(f"❌ no HiPS found for '{search_query}'")
+
+    selected_file = None
+    if request.method == "POST":
+        selected_file = request.form.get("selected_file")
+        if selected_file not in hips_list:
+            flash(f"❌ {selected_file} not found")
+            selected_file = None
+
+    hips_url = f"/hips/{user_id}/{selected_file}/" if selected_file else None
+
+    return render_template("visualiser.html",
+                           files=hips_list,
+                           selected_file=selected_file,
+                           hips_url=hips_url,
+                           hips_id=selected_file,
+                           search_query=search_query)
 
 
 @app.route("/web-pages")
@@ -686,10 +743,10 @@ def delete_hips(user_id, hipex_id):
     if (
         not cookie_user_id
         or cookie_user_id != user_id
-        or (user_id not in user_files)
+        or not os.path.exists(os.path.join("hips", user_id))
     ):
         flash("❌ unknown or unauthorized user")
-        return redirect('/display')
+        return redirect('/hips-datasets')
     folder = os.path.join("hips", user_id, hipex_id)
     if os.path.exists(folder):
         shutil.rmtree(folder)
@@ -698,6 +755,16 @@ def delete_hips(user_id, hipex_id):
         flash(f"❌ HiPS folder '{hipex_id}' not found")
 
     return redirect('/hips-datasets')
+
+
+@app.route("/delete_selected", methods=["POST"])
+def delete_selected():
+    selected_files = request.form.getlist("selected_files")
+    for filename in selected_files:
+        file_path = os.path.join(UPLOAD_FOLDER, filename)
+        if os.path.exists(file_path):
+            os.remove(file_path)
+    return redirect(url_for("your_page_function"))
 
 
 @app.route("/generate_web_page", methods=["POST"])
@@ -831,6 +898,46 @@ def infos():
     })
 
 
+@app.route("/infosvis", methods=["GET"])
+def infosvis():
+    """
+    Display the information of a specific HiPS file.
+
+    Args:
+        fov (float): Field of view of the HiPS file.
+        ra (float): Right Ascension of the HiPS file.
+        dec (float): Declination of the HiPS file.
+
+    Returns:
+        Response: Rendered HTML template with the HiPS file information.
+    """
+    user_id = request.cookies.get('userID')
+    hips_id = request.args.get('hips_id')
+    properties_path = os.path.join("hips", user_id, hips_id, "properties")
+    hips_ra = hips_dec = hips_fov = None
+
+    if os.path.exists(properties_path):
+        with open(properties_path) as f:
+            for line in f:
+                if line.startswith("hips_initial_ra"):
+                    hips_ra = float(line.split("=")[1].strip())
+                elif line.startswith("hips_initial_dec"):
+                    hips_dec = float(line.split("=")[1].strip())
+                elif line.startswith("hips_initial_fov"):
+                    hips_fov = float(line.split("=")[1].strip())
+
+    print("🆗 ra : " + str(hips_ra))
+    print("🆗 dec : " + str(hips_dec))
+    print("🆗 fov : " + str(hips_fov))
+
+    return jsonify({
+        'hips_id': hips_id,
+        'hips_ra': hips_ra,
+        'hips_dec': hips_dec,
+        'hips_fov': hips_fov
+    })
+
+
 @app.route("/shared_infos", methods=["GET"])
 def shared_infos():
     hips_id = request.args.get('hips_id')
@@ -864,6 +971,33 @@ def shared_infos():
         'hips_dec': hips_dec,
         'hips_fov': hips_fov
     })
+
+
+@app.route("/search", methods=["GET"])
+def search():
+    """
+    Search for HiPS datasets based on a query string.
+
+    Args:
+        query (str): The search query string.
+
+    Returns:
+        Response: A JSON response containing the search results.
+    """
+    query = request.args.get('query', '').strip()
+    if not query:
+        return jsonify([])
+
+    user_id = request.cookies.get('userID')
+    if not user_id or user_id not in user_files:
+        return jsonify([])
+
+    results = []
+    for file in user_files[user_id]:
+        if query.lower() in file['filename'].lower():
+            results.append(file)
+
+    return jsonify(results)
 
 
 @app.errorhandler(413)

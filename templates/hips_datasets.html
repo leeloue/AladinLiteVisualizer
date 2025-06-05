@@ -3,32 +3,67 @@
 {% block title %}Web Pages{% endblock %}
 
 {% block content %}
+<br><br>
+<link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+
 <h2>Displaying your HiPS files</h2>
 
-<script>const userID = "{{ request.cookies.get('userID') }}";</script>
-
-<form id="display-form" action="/hips-datasets" method="POST">
-</form>
-
-<div style="margin-top:10px;" id="file-selection">
-    {% for file in files %}
-    <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 5px;">
-        <label style="display: flex; align-items: center; gap: 10px; margin: 0;">
-            <input type="radio" name="selected_file" value="{{ file }}" form="display-form"
-                onclick="displaySelectedHiPS()" {% if selected_file==file %}checked{% endif %}>
-            {{ file }}
-        </label>
-        <form action="/delete/{{ request.cookies.get('userID') }}/{{ file }}" method="POST" style="margin: 0;">
-            <button type="submit" style="padding: 0 5px;">🗑️</button>
-        </form>
-    </div>
+<div id="flash-container">
+    {% with messages = get_flashed_messages() %}
+    {% for message in messages %}
+    <div class="flash-popup">{{ message }}</div>
     {% endfor %}
+    {% endwith %}
 </div>
 
 <script>
+    document.querySelectorAll('.flash-popup').forEach(popup => {
+        setTimeout(() => {
+            popup.style.opacity = '0';
+            setTimeout(() => popup.remove(), 1500);
+        }, 6000);
+    });
+</script>
+
+<script>const userID = "{{ request.cookies.get('userID') }}";</script>
+
+<form id="display-form" action="/hips-datasets" method="POST"></form>
+
+<table id="hips-table" class="display" style="margin-top:10px; width:100%;">
+    <thead>
+        <tr>
+            <th>Select</th>
+            <th>HiPS File</th>
+            <th>Delete</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for file in files %}
+        <tr>
+            <td style="text-align: center;">
+                <input type="radio" name="selected_file" value="{{ file }}" form="display-form"
+                    onclick="displaySelectedHiPS()" {% if selected_file==file %}checked{% endif %}>
+            </td>
+            <td>{{ file }}</td>
+            <td style="text-align: center;">
+                <form action="/delete/{{ request.cookies.get('userID') }}/{{ file }}" method="POST" style="margin: 0;">
+                    <button type="submit" style="padding: 0 5px;">🗑️</button>
+                </form>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<script>
+    $(document).ready(function () {
+        $('#hips-table').DataTable();
+    });
+
     function displaySelectedHiPS() {
-        const form = document.getElementById('display-form');
-        form.submit();
+        document.getElementById('display-form').submit();
     }
 </script>
 
@@ -44,15 +79,11 @@
 <script>
     A.init.then(() => {
         const hipsUrl = "{{ hips_url }}";
-        let aladin = A.aladin('#aladin-lite-div',
-            { survey: hipsUrl }
-        );
+        let aladin = A.aladin('#aladin-lite-div', { survey: hipsUrl });
 
         fetch(`/infos?hips_id={{ hips_id }}`)
             .then(response => {
-                if (!response.ok) {
-                    throw new Error('Erreur réseau');
-                }
+                if (!response.ok) throw new Error('Erreur réseau');
                 return response.json();
             })
             .then(data => {
@@ -65,6 +96,4 @@
     });
 </script>
 {% endif %}
-
-
 {% endblock %}

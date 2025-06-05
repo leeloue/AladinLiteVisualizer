@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+
+{% block title %}Web Pages{% endblock %}
+
+{% block content %}
+
+<script>const userID = "{{ request.cookies.get('userID') }}";</script>
+
+<div class="main-container">
+
+    <div class="left-column">
+
+        <div class="search">
+            <h3>Search within your HiPS</h3>
+
+            <form id="search-form" method="GET" action="/visualiser">
+                <input type="text" name="search" placeholder="Search HiPS..." value="{{ search_query }}">
+                <button type="submit">Search</button>
+            </form>
+
+
+            <h3>HiPS List</h3>
+        </div>
+
+        <form id="display-form" action="/visualiser" method="POST"></form>
+        <div id="file-selection-visualiser">
+            {% for file in files %}
+            <div class="file-row">
+                <div class="file-button">
+                    <label class="file-name">
+                        <input type="radio" name="selected_file" value="{{ file }}" form="display-form"
+                            onclick="displaySelectedHiPS()" id="radio" {% if selected_file==file %}checked{% endif %}>
+                        {{ file }}
+                    </label>
+                    <div class="file-icons">
+                        {% if selected_file == file %}✅{% endif %}
+                        <form action="/delete/{{ request.cookies.get('userID') }}/{{ file }}" method="POST">
+                            <button type="submit" class="delete-button" title="Supprimer">🗑️</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+
+        <script>
+            function displaySelectedHiPS() {
+                document.getElementById('display-form').submit();
+            }
+        </script>
+    </div>
+
+    <div class="right-column">
+        {% if selected_file %}
+        <div id="aladin-lite-div-visualization"></div>
+        <script type="text/javascript" src="https://aladin.u-strasbg.fr/AladinLite/api/v3/latest/aladin.js"
+            charset="utf-8"></script>
+        <script>
+            A.init.then(() => {
+                const hipsUrl = "{{ hips_url }}";
+                let aladin = A.aladin('#aladin-lite-div-visualization', { survey: hipsUrl });
+
+                fetch(`/infosvis?hips_id={{ hips_id }}`)
+                    .then(response => {
+                        if (!response.ok) throw new Error('Erreur réseau');
+                        return response.json();
+                    })
+                    .then(data => {
+                        aladin.gotoRaDec(data.hips_ra, data.hips_dec);
+                        aladin.setFoV(data.hips_fov);
+                    })
+                    .catch(error => {
+                        console.error('Erreur chargement HiPS info:', error);
+                    });
+            });
+        </script>
+        {% endif %}
+    </div>
+</div>
+
+
+{% endblock %}
