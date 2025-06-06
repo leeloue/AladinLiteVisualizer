@@ -3,84 +3,142 @@
 {% block title %}Web Pages{% endblock %}
 
 {% block content %}
-<br><br>
-<h2>Your Generated HiPS Visualizations</h2>
+<biv id="web-pages-container">
+    <h2>Share your HiPS as web pages</h2>
 
-<h3>Your HiPS</h3>
 
-{% if hips_list %}
-<link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
-<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-<script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+    <h3>Your HiPS</h3>
 
-<form id="hips-form" action="/generate_web_page" method="POST">
-    <button type="submit">Generate Web Page</button>
-    <button type="button" onclick="selectAll()">Select all</button>
-    <button type="button" onclick="unselectAll()">Unselect all</button>
+    {% if hips_list %}
+    <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
 
-    <table id="hips-table" class="display" style="margin-top:10px; width:100%;">
-        <thead>
-            <tr>
-                <th><input type="checkbox" id="select-all-hips"></th>
-                <th>HiPS Name</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for hips in hips_list %}
-            <tr>
-                <td><input type="checkbox" class="hips-checkbox" name="selected_hips[]" value="{{ hips }}"></td>
-                <td>{{ hips }}</td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-</form>
+    <form id="hips-form" action="/generate_web_page" method="POST">
+        <button type="submit">Generate Web Page</button>
+        <button type="button" onclick="selectAll()">Select all</button>
+        <button type="button" onclick="unselectAll()">Unselect all</button>
 
-<script>
-    $(document).ready(function () {
-        $('#hips-table').DataTable();
+        <table id="hips-table" class="display" style="margin-top:10px; width:100%;">
+            <thead>
+                <tr>
+                    <th><input type="checkbox" id="select-all-hips"></th>
+                    <th>HiPS Name</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for hips in hips_list %}
+                <tr>
+                    <td><input type="checkbox" class="hips-checkbox" data-hips="{{ hips }}"></td>
+                    <td>{{ hips }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </form>
 
-        // Handle "select all" header checkbox
+    <script>
+        let selectedHips = new Set();
+
+        $(document).on('change', '.hips-checkbox', function () {
+            const value = $(this).data('hips');
+            if (this.checked) {
+                selectedHips.add(value);
+            } else {
+                selectedHips.delete(value);
+            }
+        });
+
+        function selectAll() {
+            $('.hips-checkbox').each(function () {
+                this.checked = true;
+                selectedHips.add($(this).data('hips'));
+            });
+        }
+
+        function unselectAll() {
+            $('.hips-checkbox').each(function () {
+                this.checked = false;
+            });
+            selectedHips.clear();
+        }
+
         $('#select-all-hips').on('click', function () {
             const checked = this.checked;
             $('.hips-checkbox').each(function () {
                 this.checked = checked;
+                const value = $(this).data('hips');
+                if (checked) {
+                    selectedHips.add(value);
+                } else {
+                    selectedHips.delete(value);
+                }
             });
         });
-    });
 
-    function selectAll() {
-        document.querySelectorAll('.hips-checkbox').forEach(cb => cb.checked = true);
-    }
+        $('#hips-form').on('submit', function (e) {
+            selectedHips.forEach(value => {
+                $('<input>').attr({
+                    type: 'hidden',
+                    name: 'selected_hips[]',
+                    value: value
+                }).appendTo('#hips-form');
+            });
+        });
 
-    function unselectAll() {
-        document.querySelectorAll('.hips-checkbox').forEach(cb => cb.checked = false);
-    }
+        $(document).ready(function () {
+            let table = $('#hips-table').DataTable({
+                paging: false,
+                searching: true,
+                info: false
+            });
 
-    function copyToClipboard(text) {
-        navigator.clipboard.writeText(location.origin + text);
-    }
-</script>
+            table.on('draw', function () {
+                $('.hips-checkbox').each(function () {
+                    const value = $(this).data('hips');
+                    this.checked = selectedHips.has(value);
+                });
+            });
+        });
 
-{% else %}
-<p>you haven't generated any HiPS web pages yet</p>
-{% endif %}
 
-<h3>Your shared HiPS / generated web pages</h3>
-{% if shared_hips_list %}
-<ul>
-    {% for shared in shared_hips_list %}
-    <li style="margin-bottom: 15px;">
-        <div>
-            {{ shared.name }}<br>
-            <a href="{{ url_for('shared_page', public_id=shared.id) }}" target="_blank">View Shared Page</a>
-            <button type="button" onclick="copyToClipboard('/shared/{{ shared.id }}')">Copy Link</button>
-        </div>
-    </li>
-    {% endfor %}
-</ul>
-{% else %}
-<p>You haven't shared any HiPS web pages yet</p>
-{% endif %}
+
+        function copyToClipboard(text) {
+            navigator.clipboard.writeText(location.origin + text);
+        }
+    </script>
+
+    {% else %}
+    <p>you haven't generated any HiPS web pages yet</p>
+    {% endif %}
+
+    <h3>Your shared HiPS / generated web pages</h3>
+    {% if shared_hips_list %}
+    <ul>
+        {% for shared in shared_hips_list %}
+        <li style="margin-bottom: 15px;">
+            <div>
+                <strong>Files:</strong>
+                <ul>
+                    {% for file in shared.hips %}
+                    <li>{{ file }}</li>
+                    {% endfor %}
+                </ul>
+
+                <a href="{{ url_for('shared_page', public_id=shared.id) }}" target="_blank">View Shared Page</a>
+                <button type="button" onclick="copyToClipboard('/shared/{{ shared.id }}')">Copy Link</button>
+                <form action="/delete_shared/{{ shared.id }}" method="POST" style="display:inline;">
+                    <button type="submit" class="delete-button" title="Delete entire group">🗑️</button>
+                </form>
+            </div>
+        </li>
+        {% endfor %}
+    </ul>
+    {% else %}
+    <p>You haven't shared any HiPS web pages yet</p>
+    {% endif %}
+
+
+</biv>
 
 {% endblock %}

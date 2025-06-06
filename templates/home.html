@@ -6,43 +6,44 @@
 
 <br>
 <br>
+<div id="home-container">
+    <h2>Welcome to Aladin Lite Visualizer</h2>
 
-<h2>Welcome to Aladin Lite Visualizer</h2>
+    <div id="home-section">
+        {% set n = files|length %}
+        <p>
+            {% if n == 0 %}
+            You haven't uploaded any FITS files yet
+            {% else %}
+            You uploaded {{ n }} FITS file{{ 's' if n > 1 else '' }}
+            {% endif %}
+        </p>
+        <a href="/fits-images"><button id="home-button">Manage your FITS files</button></a>
+    </div>
 
-{% set n = files|length %}
-<p>
-    {% if n == 0 %}
-    You haven't uploaded any FITS files yet
-    {% else %}
-    You uploaded {{ n }} FITS file{{ 's' if n > 1 else '' }}
-    {% endif %}
-</p>
-<ul>
-    <a href="/fits-images"><button>Manage your FITS files</button></a>
-</ul>
-<br>
-{% set n = hips_list|length %}
-<p>
-    {% if n == 0 %}
-    You haven't generated any HiPS yet
-    {% else %}
-    You generated {{ n }} HiPS dataset{{ 's' if n > 1 else '' }}
-    {% endif %}
-</p>
-<ul>
-    <a href="/hips-datasets"><button>Manage your HIPS images</button></a>
-</ul>
-<br>
-{% set n = web_list|length %}
-<p>
-    {% if n == 0 %}
-    You haven't generated any web pages yet
-    {% else %}
-    You generated {{ n }} web page{{ 's' if n > 1 else '' }}
-    {% endif %}
-</p>
-<ul>
-    <a href="/web-pages"><button>Manage your web pages</button></a>
-</ul>
+    <div id="home-section">
+        {% set n = hips_list|length %}
+        <p>
+            {% if n == 0 %}
+            You haven't generated any HiPS yet
+            {% else %}
+            You generated {{ n }} HiPS dataset{{ 's' if n > 1 else '' }}
+            {% endif %}
+        </p>
 
+        <a href="/visualiser"><button id="home-button">Manage your HIPS images</button></a>
+    </div>
+
+    <div id="home-section">
+        {% set n = web_list|length %}
+        <p>
+            {% if n == 0 %}
+            You haven't generated any web pages yet
+            {% else %}
+            You generated {{ n }} web page{{ 's' if n > 1 else '' }}
+            {% endif %}
+        </p>
+        <a href="/web-pages"><button id="home-button">Manage your web pages</button></a>
+    </div>
+</div>
 {% endblock %}

@@ -2,165 +2,174 @@
 {% block title %}Upload FITS files{% endblock %}
 {% block content %}
 
-<br><br><br>
 
-<form action="/upload" method="POST" enctype="multipart/form-data">
-    <input type="file" name="file" multiple accept=".fits">
-    <input type="submit" value="Upload">
-</form>
+<div id="fits-images-container">
 
-<h3>Imported files</h3>
-{% if files %}
-<link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
-<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-<script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+    <div id="fits-images-header">
+        <h2>FITS Images Management</h2>
+        <h3>Upload FITS files</h2>
+            <form action="/upload" method="POST" enctype="multipart/form-data">
+                <input type="file" name="file" multiple accept=".fits">
+                <input type="submit" value="Upload">
+            </form>
 
-<form id="generate-form">
-    <input type="hidden" name="project_name" id="project_name">
-    <button type="submit">Generate HiPS</button>
-</form>
+            <h3>Imported files</h3>
+            {% if files %}
+            <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
+            <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+            <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
 
-<form action="/deleteAll" method="POST" style="display: inline;">
-    <button type="submit">🗑️ Delete All</button>
-</form>
+            <form id="generate-form">
+                <input type="hidden" name="project_name" id="project_name">
+                <button type="submit">Generate HiPS</button>
+            </form>
 
-<!-- 
-<button type="button" onclick="checkAll()">Select All</button>
-<button type="button" onclick="uncheckAll()">Unselect All</button>-->
+            <form action="/deleteAll" method="POST" style="display: inline;">
+                <button type="submit">🗑️ Delete All</button>
+            </form>
 
-<table id="files-table" class="display" style="margin-top:10px; width:100%;">
-    <thead>
-        <tr>
-            <th><input type="checkbox" id="select-all"></th>
-            <th>File name</th>
-            <th>Size</th>
-            <th>Delete</th>
-        </tr>
-    </thead>
-    <tbody>
-        {% for f in files %}
-        <tr>
-            <td>
-                <input type="checkbox" class="row-checkbox" name="selected_files" value="{{ f.filename }}">
-            </td>
-            <td>{{ f.filename }}</td>
-            <td>{{ f.fileweight }} MB</td>
-            <td>
-                <form action="/delete/{{ f.filename }}" method="POST" style="display:inline;">
-                    <button type="submit">🗑️</button>
-                </form>
-            </td>
-        </tr>
-        {% endfor %}
-    </tbody>
-</table>
+            <div id="progress-container" style="display: none; margin-top: 10px;">
+                <progress id="progress-bar" max="100" value="0" style="width:100%;"></progress>
+                <div id="progress-status"></div>
+            </div>
+
+    </div>
+
+    <div id="fits-images-table">
+        <table id="files-table" class="display" style="margin-top:10px; width:100%;">
+            <thead>
+                <tr>
+                    <th><input type="checkbox" id="select-all"></th>
+                    <th>File name</th>
+                    <th>Size</th>
+                    <th>Delete</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for f in files %}
+                <tr>
+                    <td>
+                        <input type="checkbox" class="row-checkbox" name="selected_files" value="{{ f.filename }}">
+                    </td>
+                    <td>{{ f.filename }}</td>
+                    <td>{{ f.fileweight }} MB</td>
+                    <td>
+                        <form action="/delete/{{ f.filename }}" method="POST" style="display:inline;">
+                            <button type="submit">🗑️</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
 
 
-<div id="progress-container" style="display: none; margin-top: 10px;">
-    <progress id="progress-bar" max="100" value="0" style="width:100%;"></progress>
-    <div id="progress-status"></div>
-</div>
 
-<script>
-    $(document).ready(function () {
-        $('#files-table').DataTable();
 
-        $('#select-all').on('click', function () {
-            $('.row-checkbox').prop('checked', this.checked);
+
+    <script>
+        $(document).ready(function () {
+            $('#files-table').DataTable();
+
+            $('#select-all').on('click', function () {
+                $('.row-checkbox').prop('checked', this.checked);
+            });
         });
-    });
 
-    function checkAll() {
-        $('.row-checkbox').prop('checked', true);
-    }
+        function checkAll() {
+            $('.row-checkbox').prop('checked', true);
+        }
 
-    function uncheckAll() {
-        $('.row-checkbox').prop('checked', false);
-    }
+        function uncheckAll() {
+            $('.row-checkbox').prop('checked', false);
+        }
 
-    document.addEventListener('DOMContentLoaded', () => {
-        const generateForm = document.getElementById('generate-form');
-        const progressContainer = document.getElementById('progress-container');
-        const progressBar = document.getElementById('progress-bar');
-        const progressStatus = document.getElementById('progress-status');
+        document.addEventListener('DOMContentLoaded', () => {
+            const generateForm = document.getElementById('generate-form');
+            const progressContainer = document.getElementById('progress-container');
+            const progressBar = document.getElementById('progress-bar');
+            const progressStatus = document.getElementById('progress-status');
 
-        generateForm.addEventListener('submit', async (e) => {
-            e.preventDefault();
+            generateForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
 
-            const checkboxes = document.querySelectorAll('input[name="selected_files"]:checked');
-            if (checkboxes.length === 0) {
-                alert("Select at least one file to generate HiPS");
-                return;
-            }
+                const checkboxes = document.querySelectorAll('input[name="selected_files"]:checked');
+                if (checkboxes.length === 0) {
+                    alert("Select at least one file to generate HiPS");
+                    return;
+                }
 
-            const userInput = prompt("Entrez un nom pour le projet HiPS :");
-            if (userInput === null) return;
-            const projectName = userInput.trim();
+                const userInput = prompt("Entrez un nom pour le projet HiPS :");
+                if (userInput === null) return;
+                const projectName = userInput.trim();
 
-            if (checkboxes.length > 1 && projectName === "") {
-                alert("Please enter a name for the HiPS project");
-                return;
-            }
+                if (checkboxes.length > 1 && projectName === "") {
+                    alert("Please enter a name for the HiPS project");
+                    return;
+                }
 
-            const existingNames = Array.from(document.querySelectorAll('input[name="selected_files"]'))
-                .map(cb => cb.value.toLowerCase());
+                const existingNames = Array.from(document.querySelectorAll('input[name="selected_files"]'))
+                    .map(cb => cb.value.toLowerCase());
 
-            if (checkboxes.length > 1 && existingNames.includes(projectName.toLowerCase())) {
-                alert("Ce nom est déjà utilisé. Veuillez en choisir un autre.");
-                return;
-            }
+                if (checkboxes.length > 1 && existingNames.includes(projectName.toLowerCase())) {
+                    alert("Ce nom est déjà utilisé. Veuillez en choisir un autre.");
+                    return;
+                }
 
-            const finalName = projectName || checkboxes[0].value;
-            document.getElementById("project_name").value = finalName;
+                const finalName = projectName || checkboxes[0].value;
+                document.getElementById("project_name").value = finalName;
 
-            const formData = new FormData();
-            checkboxes.forEach(cb => formData.append('selected_files', cb.value));
-            formData.append('project_name', finalName);
+                const formData = new FormData();
+                checkboxes.forEach(cb => formData.append('selected_files', cb.value));
+                formData.append('project_name', finalName);
 
-            progressContainer.style.display = 'block';
-            progressBar.value = 0;
-            progressStatus.textContent = 'Initializing...';
+                progressContainer.style.display = 'block';
+                progressBar.value = 0;
+                progressStatus.textContent = 'Initializing...';
 
-            try {
-                const resp = await fetch('/generate_hips', {
-                    method: 'POST',
-                    body: formData
-                });
+                try {
+                    const resp = await fetch('/generate_hips', {
+                        method: 'POST',
+                        body: formData
+                    });
 
-                if (!resp.ok) throw new Error("Server error while generating HiPS");
-                const data = await resp.json();
-                const hipsId = data.hips_id;
+                    if (!resp.ok) throw new Error("Server error while generating HiPS");
+                    const data = await resp.json();
+                    const hipsId = data.hips_id;
 
-                const interval = setInterval(() => {
-                    fetch(`/get_progress?hips_id=${encodeURIComponent(hipsId)}`)
-                        .then(r => r.json())
-                        .then(d => {
-                            progressBar.value = d.progress;
-                            progressStatus.textContent = `Progression : ${d.progress}%`;
+                    const interval = setInterval(() => {
+                        fetch(`/get_progress?hips_id=${encodeURIComponent(hipsId)}`)
+                            .then(r => r.json())
+                            .then(d => {
+                                progressBar.value = d.progress;
+                                progressStatus.textContent = `Progression : ${d.progress}%`;
 
-                            if (d.progress >= 100) {
-                                clearInterval(interval);
-                                if (d.status === 'complete') {
-                                    progressStatus.textContent = '✅ generation finished';
-                                } else {
-                                    progressStatus.textContent = '❌ error while generating HiPS';
+                                if (d.progress >= 100) {
+                                    clearInterval(interval);
+                                    if (d.status === 'complete') {
+                                        progressStatus.textContent = '✅ generation finished';
+                                    } else {
+                                        progressStatus.textContent = '❌ error while generating HiPS';
+                                    }
                                 }
-                            }
-                        })
-                        .catch(err => {
-                            clearInterval(interval);
-                            progressStatus.textContent = `tracking error : ${err.message}`;
-                        });
-                }, 1000);
-            } catch (err) {
-                progressStatus.textContent = `error : ${err.message}`;
-            }
+                            })
+                            .catch(err => {
+                                clearInterval(interval);
+                                progressStatus.textContent = `tracking error : ${err.message}`;
+                            });
+                    }, 1000);
+                } catch (err) {
+                    progressStatus.textContent = `error : ${err.message}`;
+                }
+            });
         });
-    });
-</script>
+    </script>
 
-{% else %}
-<p>Aucun fichier importé</p>
-{% endif %}
+    {% else %}
+    <p>Aucun fichier importé</p>
+    {% endif %}
+
+</div>
 
 {% endblock %}

@@ -264,41 +264,40 @@ def home():
 
     if user_id not in user_files:
         user_files[user_id] = []
+
+    existing_filenames = {f["filename"] for f in user_files[user_id]}
     for f in os.listdir(user_folder):
-        if f.endswith(".fits"):
+        if f.endswith(".fits") and f not in existing_filenames:
             full_path = os.path.join(user_folder, f)
             size_mb = round(os.path.getsize(full_path) / (1024 * 1024), 2)
-            hips_id = next((file.get("hips_id") for file in user_files.get(
-                user_id, []) if file["filename"] == f), None)
+            hips_id = next((file.get("hips_id") for file in user_files[user_id]
+                            if file["filename"] == f), None)
             user_files[user_id].append({
                 "filename": f,
                 "hips_id": hips_id,
                 "fileweight": size_mb,
             })
+
     files = user_files[user_id]
     latest = next(
-        (f["hips_id"] for f in reversed(files) if f["hips_id"]),
-        None,
-    )
+        (f["hips_id"] for f in reversed(files) if f["hips_id"]), None)
 
+    # HiPS folder
     folder = os.path.join("hips", user_id)
-    if not os.path.exists(folder):
-        flash("❌ no folder found")
-        return redirect('/')
+    if os.path.exists(folder):
+        hips_list = [d for d in os.listdir(folder)
+                     if os.path.isdir(os.path.join(folder, d))]
+    else:
+        hips_list = []
 
-    hips_list = [d for d in os.listdir(folder)
-                 if os.path.isdir(os.path.join(folder, d))]
-
+    # Pages partagées
     shared_pages_path = "shared-pages/shared_pages.json"
     web_list = []
-
     if os.path.exists(shared_pages_path):
         with open(shared_pages_path, "r") as f:
             shared_pages = json.load(f)
-        web_list = [
-            page_id for page_id, data in shared_pages.items()
-            if data.get("user_id") == user_id
-        ]
+        web_list = [page_id for page_id, data in shared_pages.items()
+                    if data.get("user_id") == user_id]
 
     resp = make_response(
         render_template(
@@ -310,11 +309,7 @@ def home():
             web_list=web_list,
         )
     )
-    resp.set_cookie(
-        "userID",
-        user_id,
-        expires=time.time() + 365 * 24 * 3600,  # 1 year
-    )
+    resp.set_cookie("userID", user_id, expires=time.time() + 365 * 24 * 3600)
     return resp
 
 
@@ -453,7 +448,8 @@ def web_pages():
             if info["user_id"] == user_id:
                 shared_hips_list.append({
                     "id": public_id,
-                    "name": f"Shared HiPS ({', '.join(info['hips'])})"
+                    "name": f"Shared HiPS ({', '.join(info['hips'])})",
+                    "hips": info["hips"]
                 })
 
     print(f"[DEBUG] shared_hips_list: {shared_hips_list}")
@@ -536,7 +532,6 @@ def generate_hips():
             src = os.path.join(os.path.abspath(upload_dir), name)
             dst = os.path.join(temp_dir, name)
             os.symlink(src, dst)
-            flash(f"✅ {name} linked in temp dir")
 
         safe_project_name = project_name.replace("/", "_").replace("\\", "_")
         hips_id = f"{user_id}/{safe_project_name}"
@@ -746,7 +741,7 @@ def delete_hips(user_id, hipex_id):
         or not os.path.exists(os.path.join("hips", user_id))
     ):
         flash("❌ unknown or unauthorized user")
-        return redirect('/hips-datasets')
+        return redirect('/visualiser')
     folder = os.path.join("hips", user_id, hipex_id)
     if os.path.exists(folder):
         shutil.rmtree(folder)
@@ -754,7 +749,7 @@ def delete_hips(user_id, hipex_id):
     else:
         flash(f"❌ HiPS folder '{hipex_id}' not found")
 
-    return redirect('/hips-datasets')
+    return redirect('/visualiser')
 
 
 @app.route("/delete_selected", methods=["POST"])
@@ -774,7 +769,7 @@ def generate_web_page():
         flash("❌ unknown user")
         return redirect('/')
 
-    selected_hips = request.form.getlist("selected_hips")
+    selected_hips = request.form.getlist("selected_hips[]")
     if not selected_hips:
         flash("❌ please select at least one HiPS to share")
         return redirect('/web-pages')
@@ -805,7 +800,7 @@ def generate_web_page():
         json.dump(data, f)
 
     flash("✅ web page generated successfully ")
-    return redirect('/web-pages')
+    return redirect("/web-pages")
 
 
 @app.route('/web-pages/<path:filename>')
@@ -818,14 +813,14 @@ def shared_page(public_id):
     metadata_path = os.path.join("shared-pages", "shared_pages.json")
 
     if not os.path.exists(metadata_path):
-        flash("❌ Aucune page partagée disponible.")
+        flash("❌ no available shared pages")
         return redirect("/")
 
     with open(metadata_path, "r") as f:
         data = json.load(f)
 
     if public_id not in data:
-        flash("❌ Page partagée invalide.")
+        flash("❌ shared page not found")
         return redirect("/")
 
     info = data[public_id]
@@ -838,7 +833,7 @@ def shared_page(public_id):
     if request.method == "POST":
         selected_file = request.form.get("selected_file")
         if selected_file not in hips_list:
-            flash("❌ Fichier HiPS invalide.")
+            flash("❌ HiPS file not found")
             return redirect(f"/shared/{public_id}")
 
         hips_url = f"/shared-pages/{public_id}/{selected_file}/"
@@ -973,6 +968,40 @@ def shared_infos():
     })
 
 
+@app.route("/delete_shared/<public_id>", methods=["POST"])
+def delete_shared_group(public_id):
+    """
+    Delete an entire shared HiPS group
+    and update shared_pages.json accordingly.
+    """
+    metadata_path = os.path.join("shared-pages", "shared_pages.json")
+
+    if not os.path.exists(metadata_path):
+        flash("❌ No shared pages available")
+        return redirect("/web-pages")
+
+    with open(metadata_path, "r") as f:
+        data = json.load(f)
+
+    if public_id not in data:
+        flash("❌ Shared page not found")
+        return redirect("/web-pages")
+
+    shared_group_path = os.path.join("shared-pages", public_id)
+    if os.path.exists(shared_group_path):
+        shutil.rmtree(shared_group_path)
+        flash(f"✅ Shared group {public_id} deleted")
+    else:
+        flash("❌ Group directory not found")
+
+    del data[public_id]
+
+    with open(metadata_path, "w") as f:
+        json.dump(data, f, indent=4)
+
+    return redirect("/web-pages")
+
+
 @app.route("/search", methods=["GET"])
 def search():
     """
@@ -996,6 +1025,35 @@ def search():
     for file in user_files[user_id]:
         if query.lower() in file['filename'].lower():
             results.append(file)
+
+    return jsonify(results)
+
+
+@app.route("/search-shared", methods=["GET"])
+def search_shared():
+    """
+    Search for HiPS datasets shared by users based on a query string.
+    Returns a list of matching file names with their associated public_id.
+    """
+    query = request.args.get('query', '').strip().lower()
+    if not query:
+        return jsonify([])
+
+    metadata_path = os.path.join("shared-pages", "shared_pages.json")
+    if not os.path.exists(metadata_path):
+        return jsonify([])
+
+    with open(metadata_path, "r") as f:
+        shared_data = json.load(f)
+
+    results = []
+    for public_id, data in shared_data.items():
+        for file_name in data.get("files", []):
+            if query in file_name.lower():
+                results.append({
+                    "file": file_name,
+                    "public_id": public_id
+                })
 
     return jsonify(results)
 
