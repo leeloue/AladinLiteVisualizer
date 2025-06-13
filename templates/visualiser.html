@@ -48,30 +48,91 @@
                 document.getElementById('display-form').submit();
             }
         </script>
+
+        <div id="upload-container">
+            <form id="catalog-form" enctype="multipart/form-data">
+                <label>Upload CSV Catalog :
+                    <br>
+                    <input type="file" name="csv_file" required>
+                </label><br>
+                <label>Colonne RA :
+                    <input type="text" name="ra_col" placeholder="_RAJ2000" required>
+                </label><br>
+                <label>Colonne Dec :
+                    <input type="text" name="dec_col" placeholder="_DEJ2000" required>
+                </label><br>
+                <label>Colonne Score :
+                    <input type="text" name="score_col" placeholder="Vmag" required>
+                </label><br>
+                <button type="submit">Générer et Afficher le Catalogue</button>
+            </form>
+
+        </div>
+
+        <script>
+            document.getElementById('catalog-form').addEventListener('submit', async (e) => {
+                e.preventDefault();
+
+                const formData = new FormData(e.target);
+
+                const response = await fetch('/generate_catalog', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const result = await response.json();
+                if (result.success) {
+                    const catalogUrl = result.hips_url;
+                    const cat = A.catalogHiPS(catalogUrl, { onClick: 'showTable', name: result.name });
+                    aladin.addCatalog(cat);
+                    alert("Catalogue HiPS ajouté !");
+                } else {
+                    alert("Erreur : " + result.error);
+                }
+            });
+        </script>
+
     </div>
 
     <div class="right-column">
         {% if selected_file %}
         <div id="aladin-lite-div-visualization"></div>
-        <script type="text/javascript" src="https://aladin.u-strasbg.fr/AladinLite/api/v3/latest/aladin.js"
-            charset="utf-8"></script>
+        <script src="https://aladin.u-strasbg.fr/AladinLite/api/v3/latest/aladin.js" charset="utf-8"></script>
         <script>
             A.init.then(() => {
-                const hipsUrl = "{{ hips_url }}";
-                let aladin = A.aladin('#aladin-lite-div-visualization', { survey: hipsUrl });
+                const aladin = A.aladin('#aladin-lite-div-visualization', {
+                    survey: "{{ hips_url }}"
+                });
+
+                {% for catalog_name in user_catalogs %}
+                aladin.addCatalog(
+                    A.catalogHiPS(
+                        "/user_catalogs/{{ user_id }}/{{ catalog_name }}/hips",
+                        { onClick: 'showTable', name: "{{ catalog_name }}" }
+                    )
+                );
+                {% endfor %}
+
+                aladin.addCatalog(
+                    A.catalogHiPS(
+                        'https://hipscat.cds.unistra.fr/HiPSCatService/Simbad',
+                        { onClick: 'showTable', name: 'Simbad' }
+                    )
+                );
+                aladin.addCatalog(
+                    A.catalogHiPS(
+                        'https://hipscat.cds.unistra.fr/HiPSCatService/I/355/gaiadr3/',
+                        { onClick: 'showTable', name: 'Gaia DR3' }
+                    )
+                );
 
                 fetch(`/infosvis?hips_id={{ hips_id }}`)
-                    .then(response => {
-                        if (!response.ok) throw new Error('Erreur réseau');
-                        return response.json();
-                    })
+                    .then(r => r.ok ? r.json() : Promise.reject('network error'))
                     .then(data => {
                         aladin.gotoRaDec(data.hips_ra, data.hips_dec);
                         aladin.setFoV(data.hips_fov);
                     })
-                    .catch(error => {
-                        console.error('Erreur chargement HiPS info:', error);
-                    });
+                    .catch(console.error);
             });
         </script>
         {% endif %}

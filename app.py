@@ -282,7 +282,6 @@ def home():
     latest = next(
         (f["hips_id"] for f in reversed(files) if f["hips_id"]), None)
 
-    # HiPS folder
     folder = os.path.join("hips", user_id)
     if os.path.exists(folder):
         hips_list = [d for d in os.listdir(folder)
@@ -290,7 +289,6 @@ def home():
     else:
         hips_list = []
 
-    # Pages partagées
     shared_pages_path = "shared-pages/shared_pages.json"
     web_list = []
     if os.path.exists(shared_pages_path):
@@ -388,39 +386,56 @@ def visu():
         flash("❌ unknown user")
         return redirect('/')
 
-    folder = os.path.join("hips", user_id)
-    if not os.path.exists(folder):
+    hips_folder = os.path.join("hips", user_id)
+    if not os.path.exists(hips_folder):
         flash("❌ no folder found")
         return redirect('/')
 
-    hips_list = [d for d in os.listdir(folder)
-                 if os.path.isdir(os.path.join(folder, d))]
-
+    hips_list = [
+        d for d in os.listdir(hips_folder)
+        if os.path.isdir(os.path.join(hips_folder, d))
+    ]
     if not hips_list:
         flash("❌ no hips found")
         return redirect('/fits-images')
 
     search_query = request.args.get('search', '').strip()
     if search_query:
-        hips_list = [f for f in hips_list if search_query.lower() in f.lower()]
+        hips_list = [
+            name for name in hips_list
+            if search_query.lower() in name.lower()
+        ]
         if not hips_list:
             flash(f"❌ no HiPS found for '{search_query}'")
 
     selected_file = None
     if request.method == "POST":
-        selected_file = request.form.get("selected_file")
-        if selected_file not in hips_list:
-            flash(f"❌ {selected_file} not found")
-            selected_file = None
+        candidate = request.form.get("selected_file")
+        if candidate in hips_list:
+            selected_file = candidate
+        else:
+            flash(f"❌ {candidate} not found")
 
     hips_url = f"/hips/{user_id}/{selected_file}/" if selected_file else None
 
-    return render_template("visualiser.html",
-                           files=hips_list,
-                           selected_file=selected_file,
-                           hips_url=hips_url,
-                           hips_id=selected_file,
-                           search_query=search_query)
+    catalog_dir = os.path.join("user_catalogs", user_id)
+    user_catalogs = []
+    if os.path.exists(catalog_dir):
+        user_catalogs = [
+            name for name in os.listdir(catalog_dir)
+            if os.path.isdir(os.path.join(catalog_dir, name))
+        ]
+
+    return render_template(
+        "visualiser.html",
+        files=hips_list,
+        selected_file=selected_file,
+        hips_url=hips_url,
+        hips_id=selected_file,
+        search_query=search_query,
+        user_id=user_id,
+        user_catalogs=user_catalogs
+    )
 
 
 @app.route("/web-pages")
@@ -1056,6 +1071,65 @@ def search_shared():
                 })
 
     return jsonify(results)
+
+
+@app.route('/generate_catalog', methods=['POST'])
+def generate_catalog():
+    user_id = request.cookies.get('userID')
+    try:
+        ra_col = request.form['ra_col']
+        dec_col = request.form['dec_col']
+        score_col = request.form['score_col']
+        csv_file = request.files['csv_file']
+
+        if not csv_file or csv_file.filename == '':
+            raise ValueError("Aucun fichier CSV n'a été fourni.")
+
+        original_filename = os.path.splitext(csv_file.filename)[0]
+        safe_filename = secure_filename(original_filename)
+
+        base_dir = os.path.join(
+            'user_catalogs',
+            secure_filename(user_id),
+            safe_filename
+            )
+        os.makedirs(base_dir, exist_ok=True)
+
+        csv_path = os.path.join(base_dir, 'input.csv')
+        output_dir = os.path.join(base_dir, 'hips')
+
+        if os.path.exists(output_dir):
+            shutil.rmtree(output_dir)
+        os.makedirs(output_dir, exist_ok=True)
+
+        csv_file.save(csv_path)
+
+        cmd = [
+            'java', '-jar', 'Hipsgen-cat.jar',
+            '-cat', f"{user_id}_{safe_filename}",
+            '-in', csv_path,
+            '-ra', ra_col,
+            '-dec', dec_col,
+            '-score', score_col,
+            '-simple', '-lM', '11',
+            '-out', output_dir
+        ]
+
+        result = subprocess.run(cmd, capture_output=True, text=True)
+
+        if result.returncode != 0:
+            raise RuntimeError(f"Hipsgen-cat failed:\n{result.stderr}")
+
+        hips_url = f"/user_catalogs/{user_id}/{safe_filename}/hips"
+        return jsonify(success=True, hips_url=hips_url, name=safe_filename)
+
+    except Exception as e:
+        return jsonify(success=False, error=str(e))
+
+
+@app.route('/user_catalogs/<path:filename>')
+def serve_user_catalog(filename):
+    return send_from_directory('user_catalogs', filename)
 
 
 @app.errorhandler(413)

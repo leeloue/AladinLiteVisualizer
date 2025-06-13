@@ -16,8 +16,6 @@
 
     <form id="hips-form" action="/generate_web_page" method="POST">
         <button type="submit">Generate Web Page</button>
-        <button type="button" onclick="selectAll()">Select all</button>
-        <button type="button" onclick="unselectAll()">Unselect all</button>
 
         <table id="hips-table" class="display" style="margin-top:10px; width:100%;">
             <thead>
@@ -48,20 +46,6 @@
                 selectedHips.delete(value);
             }
         });
-
-        function selectAll() {
-            $('.hips-checkbox').each(function () {
-                this.checked = true;
-                selectedHips.add($(this).data('hips'));
-            });
-        }
-
-        function unselectAll() {
-            $('.hips-checkbox').each(function () {
-                this.checked = false;
-            });
-            selectedHips.clear();
-        }
 
         $('#select-all-hips').on('click', function () {
             const checked = this.checked;
