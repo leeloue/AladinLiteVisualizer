@@ -13,6 +13,12 @@ Aladin Lite is available at this link.
 Aladin Lite web Visualizer is available at this link.
 
 
+
+à quoi ça sert, comment est ce qu'on lance, et comment est ce que le code est organisé (répertoires)
+
+
+
+
 Releases
 
 A release page keeps track of all the current and previous builds. A release and beta versions, regularly updated are available. The beta version is usually more advanced than the release one but features more error prone and not production-ready code.

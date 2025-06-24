@@ -779,11 +779,13 @@ def delete_selected():
 
 @app.route("/generate_web_page", methods=["POST"])
 def generate_web_page():
+    # Récupération de l'identifiant utilisateur via cookie
     user_id = request.cookies.get("userID")
     if not user_id:
         flash("❌ unknown user")
         return redirect('/')
 
+    # Récupération des HiPS sélectionnés dans le formulaire
     selected_hips = request.form.getlist("selected_hips[]")
     if not selected_hips:
         flash("❌ please select at least one HiPS to share")
